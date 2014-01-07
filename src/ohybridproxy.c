@@ -105,6 +105,7 @@ static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_
 
 	L_DEBUG("Parsed a request %hx of type %u for %s with max response length %lB",
 			req->dhcpid, req->qtype, req->query, (long)req->maxlen);
+	list_add(&req->head, &requests);
 	return true;
 }
 
@@ -136,11 +137,10 @@ static void ohp_handle_udp(struct uloop_fd *fd, __unused unsigned int events)
 		L_DEBUG("Received %ld bytes via UDP", (long)len);
 
 		struct ohp_request_udp *req = calloc(1, sizeof(*req) + addrlen);
-		if (ohp_parse_request(&req->req, buf, (size_t)len, true)) {
-			req->addrlen = addrlen;
-			memcpy(req->addr, &addr, addrlen);
-			list_add(&req->req.head, &requests);
-		} else {
+		req->addrlen = addrlen;
+		memcpy(req->addr, &addr, addrlen);
+
+		if (!ohp_parse_request(&req->req, buf, (size_t)len, true)) {
 			L_DEBUG("UDP request was invalid");
 			// TODO: reply with DNS FORMERR here?
 			free(req);
@@ -177,9 +177,6 @@ static void ohp_handle_tcp_data(struct ustream *s, __unused int bytes_new)
 
 	// Cancel read timeout
 	uloop_timeout_cancel(&tcp->conn.stream.state_change);
-
-	// Request parsed successfully, add to pending request list
-	list_add(&tcp->req.head, &requests);
 }
 
 
