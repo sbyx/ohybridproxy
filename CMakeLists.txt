@@ -11,7 +11,7 @@ if(${L_LEVEL})
 endif(${L_LEVEL})
 
 add_executable(ohybridproxy src/ohybridproxy.c)
-target_link_libraries(ohybridproxy ubox)
+target_link_libraries(ohybridproxy ubox resolv)
 
 # Unit test stuff
 
