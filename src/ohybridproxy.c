@@ -69,7 +69,7 @@ static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_
 	const uint8_t *eom = &buf[len];
 	const uint16_t *hdr = (uint16_t*)buf;
 
-	if (ntohl(hdr[2]) != 1 || hdr[3] || hdr[4])
+	if (ntohs(hdr[2]) != 1 || hdr[3] || hdr[4])
 		return false;
 
 	char domain[256];
@@ -103,7 +103,7 @@ static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_
 		// TODO: Parse LLQ options?
 	}
 
-	L_DEBUG("Parsed a request %hx of type %u for %s with max response length %lB",
+	L_DEBUG("Parsed a request %hx of type %u for %s with max response length %ldB",
 			req->dhcpid, req->qtype, req->query, (long)req->maxlen);
 	list_add(&req->head, &requests);
 	return true;
@@ -129,7 +129,7 @@ static void ohp_handle_udp(struct uloop_fd *fd, __unused unsigned int events)
 
 	uint8_t buf[512];
 	ssize_t len;
-	while ((len = recvfrom(fd->fd, buf, sizeof(buf), MSG_TRUNC, &addr.sa, &addrlen)) >= 0 &&
+	while ((len = recvfrom(fd->fd, buf, sizeof(buf), MSG_TRUNC, &addr.sa, &addrlen)) >= 0 ||
 			errno != EWOULDBLOCK) {
 		if (len < 0 || len > (ssize_t)sizeof(buf))
 			continue;
@@ -170,7 +170,7 @@ static void ohp_handle_tcp_data(struct ustream *s, __unused int bytes_new)
 
 	// Parse request
 	if (!ohp_parse_request(&tcp->req, &data[2], len, false)) {
-		L_DEBUG("TCP connection %i received invalid request", tcp->conn.fd.fd, pending);
+		L_DEBUG("TCP connection %i received invalid request", tcp->conn.fd.fd);
 		ustream_state_change(s); // Trigger failure
 		return;
 	}
@@ -193,7 +193,7 @@ static void ohp_handle_tcp_done(struct ustream *s)
 static void ohp_handle_tcp_conn(struct uloop_fd *fd, __unused unsigned int events)
 {
 	int clientfd;
-	while ((clientfd = accept(fd->fd, NULL, NULL)) >= 0 && errno != EWOULDBLOCK) {
+	while ((clientfd = accept(fd->fd, NULL, NULL)) >= 0 || errno != EWOULDBLOCK) {
 		if (clientfd < 0)
 			continue;
 
