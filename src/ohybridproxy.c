@@ -59,8 +59,7 @@ static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_
 		return false;
 
 	req->dnsid = hdr[0];
-	req->query = strdup(domain);
-	req->qtype = question[complen] << 8 | question[complen + 1];
+	d2m_req_add_query(req, domain, question[complen] << 8 | question[complen + 1]);
 	req->udp = udp;
 	req->maxlen = (udp) ? 512 : 65535;
 
@@ -94,7 +93,7 @@ static void ohp_free_request(struct ohp_request *req)
 {
 	if (req->head.next)
 		list_del(&req->head);
-	free(req->query);
+	// TODO - deal with 'queries' (the 'stop' method should do it already)
 	free(req); // TODO: should maybe use container_of before, but it's the first entry anyway
 }
 
@@ -138,7 +137,7 @@ static void ohp_handle_tcp_data(struct ustream *s, __unused int bytes_new)
 	L_DEBUG("TCP connection %i has %i bytes pending", tcp->conn.fd.fd, pending);
 
 	// Basic sanity check
-	if (pending < 2 || tcp->req.query || tcp->req.head.next)
+	if (pending < 2 || tcp->req.head.next)
 		return;
 
 	size_t len = ((size_t)data[0]) << 8 | data[1];
