@@ -10,7 +10,7 @@ if(${L_LEVEL})
 	add_definitions(-DL_LEVEL=${L_LEVEL})
 endif(${L_LEVEL})
 
-add_executable(ohybridproxy src/ohybridproxy.c)
+add_executable(ohybridproxy src/ohybridproxy.c src/dns2mdns.c)
 target_link_libraries(ohybridproxy ubox)
 
 # Unit test stuff
@@ -30,6 +30,10 @@ include_directories(src)
 add_executable(test_dnsutil test/test_dnsutil.c)
 add_test(dnsutil test_dnsutil)
 add_dependencies(check test_dnsutil)
+
+add_executable(test_dns2mdns test/test_dns2mdns.c)
+add_test(dns2mdns test_dns2mdns)
+add_dependencies(check test_dns2mdns)
 
 add_executable(test_mdnsresponder test/test_mdnsresponder.c)
 target_link_libraries(test_mdnsresponder ubox)

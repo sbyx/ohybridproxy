@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 11:41:22 2014 mstenber
- * Last modified: Wed Jan  8 14:47:03 2014 mstenber
- * Edit time:     44 min
+ * Last modified: Wed Jan  8 19:07:35 2014 mstenber
+ * Edit time:     48 min
  *
  */
 
@@ -59,11 +59,12 @@ do {                                                    \
 
 /*
  * Convert escaped string to a label list, potentially appending final
- * empty list if it is not present within escaped.
+ * empty label if it is not present within escaped.
  *
  * Return value is number of bytes written to ll or less than zero in
  * case of error.
  */
+static inline
 int escaped2ll(const char *escaped, uint8_t *ll, int ll_left)
 {
   uint8_t *oll = ll;
@@ -148,6 +149,7 @@ do {                                                    \
  * Return the number of bytes consumed (escaped string will be null
  * terminated) or less than zero in case of error.
  */
+static inline
 int ll2escaped(const uint8_t *ll, int ll_left, char *escaped, int escaped_left)
 {
   const uint8_t *oll = ll;

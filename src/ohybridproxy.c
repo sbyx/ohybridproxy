@@ -8,12 +8,11 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
-#include <libubox/list.h>
-#include <libubox/uloop.h>
 #include <libubox/usock.h>
 #include <libubox/utils.h>
 #include <libubox/ustream.h>
 
+#include "dns2mdns.h"
 #include "ohybridproxy.h"
 #include "dns_util.h"
 
@@ -23,18 +22,6 @@ static void ohp_handle_tcp_conn(struct uloop_fd *fd, __unused unsigned int event
 
 static struct uloop_fd udpsrv = { .cb = ohp_handle_udp };
 static struct uloop_fd tcpsrv = { .cb = ohp_handle_tcp_conn };
-
-
-
-struct ohp_request {
-	struct list_head head;
-	struct uloop_timeout timeout;
-	char *query;
-	uint16_t qtype;
-	uint16_t dhcpid;
-	size_t maxlen;
-	bool udp;
-};
 
 struct ohp_request_tcp {
 	struct ohp_request req;
@@ -47,6 +34,11 @@ struct ohp_request_udp {
 	struct sockaddr addr[];
 };
 
+void d2m_request_send(struct ohp_request *req, uint8_t *data, size_t data_len)
+{
+  /* Send the given result back to the client. */
+  /* XXX */
+}
 
 static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_t len, bool udp)
 {
@@ -66,7 +58,7 @@ static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_
 	if (complen <= 0 || opt > eom)
 		return false;
 
-	req->dhcpid = hdr[0];
+	req->dnsid = hdr[0];
 	req->query = strdup(domain);
 	req->qtype = question[complen] << 8 | question[complen + 1];
 	req->udp = udp;
@@ -92,7 +84,7 @@ static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_
 	}
 
 	L_DEBUG("Parsed a request %hx of type %u for %s with max response length %ldB",
-			req->dhcpid, req->qtype, req->query, (long)req->maxlen);
+			req->dnsid, req->qtype, req->query, (long)req->maxlen);
 	list_add(&req->head, &requests);
 	return true;
 }
@@ -267,6 +259,7 @@ help:
 		}
 		*domain++ = 0;
 		/* Now we can do stuff with ifname+domain. */
+		d2m_add_interface(ifname, domain);
 	}
 
 	uloop_run();
