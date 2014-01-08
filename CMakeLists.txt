@@ -27,6 +27,10 @@ include_directories(src)
 #add_test(dummy test_dummy)
 #add_dependencies(check test_dummy)
 
+add_executable(test_dnsutil test/test_dnsutil.c)
+add_test(dnsutil test_dnsutil)
+add_dependencies(check test_dnsutil)
+
 add_executable(test_mdnsresponder test/test_mdnsresponder.c)
 target_link_libraries(test_mdnsresponder ubox)
 
