@@ -6,13 +6,16 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 13:01:23 2014 mstenber
- * Last modified: Wed Jan  8 13:21:51 2014 mstenber
- * Edit time:     13 min
+ * Last modified: Wed Jan  8 14:34:31 2014 mstenber
+ * Edit time:     31 min
  *
  */
 
+#define L_LEVEL 7
+
 #include "dns_util.h"
 #include "sput.h"
+#include "ohybridproxy.h"
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
@@ -25,70 +28,94 @@
 
 const char *test_strings[] = {
   "foo",
+  "f\\.o",
+  "f\\130o",
   "foo.local",
-  "foo.local.",
   NULL
 };
 
 int expected_binary_size[] = {
   1+3+1,
-  1+3+5+1,
-  1+3+5+1
+  1+3+1,
+  1+3+1,
+  1+3+1+5+1,
+  1+3+1+5+1
 };
 
-void check_test_strings(void)
+void check_test_string(const char *s, int es, int es2)
 {
-  int i, j, k, r;
-  const char *s;
+  int j, k, r;
   uint8_t buf[128];
   char buf2[128];
 
-  for (i = 0 ; (s=test_strings[i]) ; i++)
+  L_DEBUG("check_test_string %s => %d => %d", s, es, es2);
+  for (j = 0 ; j < es + 2 ; j++)
     {
-      int es = expected_binary_size[i];
-      for (j = 0 ; j < es + 2 ; j++)
+      buf[j+1] = 42;
+      r = escaped2ll(s, j ? buf : NULL, j);
+      L_DEBUG("j:%d got %d", j, r);
+      sput_fail_unless(buf[j+1] == 42, "canary died");
+      if (j < es)
         {
-          buf[j+1] = 42;
-          r = escaped2ll(s, j ? buf : NULL, j);
-          sput_fail_unless(buf[j+1] == 42, "canary died");
-          if (j < es)
+          sput_fail_unless(r < 0, "not error with insufficient buffer");
+        }
+      else if (r != es)
+        {
+          sput_fail_unless(false, "wrong result value");
+        }
+      else
+        {
+          int or = r;
+          for (k = 0 ; k < es2 + 2 ; k++)
             {
-              sput_fail_unless(r < 0, "not error with insufficient buffer");
-            }
-          else
-            {
-              sput_fail_unless(r == es, "wrong result value");
-              int es2 = strlen(s) + s[strlen(s)-1] == '.' ? 0 : 1;
-              for (k = 0 ; k < es2 + 2 ; k++)
+              /* Try to re-encode it to buf2. */
+              buf2[k+1] = 42;
+              r = ll2escaped(buf, or, k ? buf2 : NULL, k);
+              L_DEBUG("k:%d got %d", k, r);
+              sput_fail_unless(buf2[k+1] == 42, "canary died");
+              if (k < es2)
                 {
-                  /* Try to re-encode it to buf2. */
-                  buf2[k+1] = 42;
-                  r = ll2escaped(buf, r, k ? buf2 : NULL, k);
-                  sput_fail_unless(buf2[k+1] == 42, "canary died");
-                  if (k < es2)
-                    {
-                      sput_fail_unless(r < 0,
-                                       "not error with insufficient buffer");
-                    }
-                  else
-                    {
-                      sput_fail_unless(r == es,
-                                       "wrong number of bytes consumed");
-                      sput_fail_unless((int)strlen(buf2) == es2,
-                                       "wrong strlen");
-                      sput_fail_unless(strncmp(s, buf2, strlen(s)) == 0,
-                                       "strncmp fail");
+                  sput_fail_unless(r < 0,
+                                   "not error with insufficient buffer");
+                }
+              else
+                {
+                  if (r > 0)
+                    L_DEBUG("escaped->ll->escaped:'%s'<>'%s'", s, buf2);
+                  sput_fail_unless(r == es,
+                                   "wrong number of bytes consumed");
+                  sput_fail_unless((int)strlen(buf2) == es2 - 1,
+                                   "wrong strlen");
+                  sput_fail_unless(strncmp(s, buf2, strlen(s)) == 0,
+                                   "strncmp fail");
 
-                    }
                 }
             }
         }
     }
 }
 
+void check_test_strings(void)
+{
+  int i;
+  char buf[128];
+  const char *s;
+
+  for (i = 0 ; (s=test_strings[i]) ; i++)
+    {
+      /* 'es' are expected total size; in case of es2, that includes
+       * zero final byte. */
+      int es = expected_binary_size[i];
+      sprintf(buf, "%s.", s);
+      int es2 = strlen(buf) + 1;
+      check_test_string(s, es, es2);
+      check_test_string(buf, es, es2);
+    }
+}
+
 int main(int argc, char **argv)
 {
-  /* openlog("test_dummy", LOG_CONS | LOG_PERROR, LOG_DAEMON); */
+  openlog(argv[0], LOG_CONS | LOG_PERROR, LOG_DAEMON);
   sput_start_testing();
   sput_enter_suite("dns_util"); /* optional */
   sput_run_test(check_test_strings);

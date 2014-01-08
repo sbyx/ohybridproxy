@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 11:41:22 2014 mstenber
- * Last modified: Wed Jan  8 13:20:47 2014 mstenber
- * Edit time:     41 min
+ * Last modified: Wed Jan  8 14:33:45 2014 mstenber
+ * Edit time:     68 min
  *
  */
 
@@ -21,6 +21,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include "ohybridproxy.h"
+
 /*
  * This header file defines functions for transforming label list to
  * human readable dns_sd.h specified encoding and back again.
@@ -33,14 +35,21 @@
  * well.
  */
 
-#define PUSH_LABEL(ll, ll_left, l, l_len)       \
-do {                                            \
-  if (ll_left < (l_len + 1))                    \
-    return -2;                                  \
-  *(ll++) = l_len;                              \
-  memcpy(ll, l, l_len);                         \
-  ll += l_len;                                  \
-  c = 0;                                        \
+#define PUSH_LABEL(ll, ll_left, l, l_len)               \
+do {                                                    \
+  ll_left -= l_len + 1;                                 \
+  if (ll_left < 0)                                      \
+    {                                                   \
+      L_DEBUG("lacking %d/%d bytes (push label body)",  \
+              -ll_left, l_len + 1);                     \
+      return -2;                                        \
+    }                                                   \
+  *(ll++) = l_len;                                      \
+  if (l_len) {                                          \
+    memcpy(ll, l, l_len);                               \
+    ll += l_len;                                        \
+  }                                                     \
+  c = 0;                                                \
  } while(0)
 
 /*
@@ -54,10 +63,11 @@ int escaped2ll(const char *escaped, uint8_t *ll, int ll_left)
   uint8_t *oll = ll;
   int last_size = -1;
   char c;
-  uint8_t label[kDNSServiceMaxServiceName], *l, *le = label + sizeof(label);
+  uint8_t label[kDNSServiceMaxServiceName], *l = label, *le = label + sizeof(label);
   char buf[4];
   int i;
 
+  buf[3] = 0;
   while ((c = *(escaped++)))
     {
       switch (c)
@@ -78,12 +88,15 @@ int escaped2ll(const char *escaped, uint8_t *ll, int ll_left)
               /* Better be _exactly_ 3 digits or we're in trouble ;) */
               for (i = 0 ; i < 3 ; i++)
                 {
-                  if (!(buf[i] = *escaped))
-                    return -3;
-                  if (!isdigit(buf[i]))
-                    return -4;
+                  if (i)
+                    c = *(escaped++);
+                  if (!isdigit(c))
+                    {
+                      L_DEBUG("non-digit in location %d: %c", i, c);
+                      return -3;
+                    }
+                  buf[i] = c;
                 }
-              buf[3] = 0;
               c = atoi(buf);
               break;
             }
@@ -92,7 +105,10 @@ int escaped2ll(const char *escaped, uint8_t *ll, int ll_left)
       if (c)
         {
           if (l == le)
-            return -1;
+            {
+              L_DEBUG("too long single label");
+              return -1;
+            }
           *(l++) = c;
         }
     }
@@ -104,17 +120,20 @@ int escaped2ll(const char *escaped, uint8_t *ll, int ll_left)
     }
   /* Terminate always with null label (if it didn't _just_ happen). */
   if (last_size != 0)
-    PUSH_LABEL(ll, ll_left, NULL, 0);
-  return oll - ll;
+    PUSH_LABEL(ll, ll_left, label, 0);
+  return ll - oll;
 }
 
 #undef PUSH_LABEL
 
-#define PUSH_CHAR(c)    \
-do {                    \
-  if (!escaped_left--)  \
-    return -1;          \
-  *(escaped++) = c;     \
+#define PUSH_CHAR(c)                                    \
+do {                                                    \
+  if (!escaped_left--)                                  \
+    {                                                   \
+      L_DEBUG("out of space in escaped pushing %d", c); \
+      return -1;                                        \
+    }                                                   \
+  *(escaped++) = c;                                     \
  } while(0)
 
 /*
@@ -129,14 +148,21 @@ int ll2escaped(uint8_t *ll, int ll_left, char *escaped, int escaped_left)
   while (1)
     {
       if (!ll_left--)
-        return -1;
+        {
+          L_DEBUG("out of input string (before last null label)");
+          return -1;
+        }
       uint8_t c = *(ll++);
 
       /* Empty label terminates the label list. */
       if (c)
         {
-          if (ll_left < c)
-            return -2;
+          ll_left -= c;
+          if (ll_left < 0)
+            {
+              L_DEBUG("%d/%d bytes of label body missing", -ll_left, c);
+              return -2;
+            }
           for (i = 0 ; i < c ; i++)
             {
               uint8_t d = *(ll++);
@@ -155,18 +181,22 @@ int ll2escaped(uint8_t *ll, int ll_left, char *escaped, int escaped_left)
                   sprintf(buf, "\\%03d", d);
                   escaped_left -= 4;
                   if (escaped_left < 0)
-                    return -2;
+                    {
+                      L_DEBUG("out of space in escaped: %d bytes",
+                              -escaped_left);
+                      return -2;
+                    }
                   memcpy(escaped, buf, 4);
                   escaped += 4;
                 }
             }
         }
-      PUSH_CHAR('.');
       if (!c)
         break;
+      PUSH_CHAR('.');
     }
   PUSH_CHAR(0);
-  return oll - ll;
+  return ll - oll;
 }
 
 #undef PUSH_CHAR
