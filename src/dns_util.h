@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 11:41:22 2014 mstenber
- * Last modified: Wed Jan  8 14:33:45 2014 mstenber
- * Edit time:     68 min
+ * Last modified: Wed Jan  8 14:47:03 2014 mstenber
+ * Edit time:     44 min
  *
  */
 
@@ -33,6 +33,11 @@
  * provide convenience API for this, unfortunately, and mDNSResponder
  * itself has wrong license, so reimplementing functionality here. Oh
  * well.
+ *
+ * There's few reasons why not to use dn_*: Extra library, and
+ * encoding that is _NOT_ consistent what dns_sd.h claims to require
+ * (and some suspicious habits w.r.t. trailing ., ordering of results,
+ * etc, which seem to vary by implementation).
  */
 
 #define PUSH_LABEL(ll, ll_left, l, l_len)               \
@@ -56,7 +61,8 @@ do {                                                    \
  * Convert escaped string to a label list, potentially appending final
  * empty list if it is not present within escaped.
  *
- * Return value is number of bytes written to ll.
+ * Return value is number of bytes written to ll or less than zero in
+ * case of error.
  */
 int escaped2ll(const char *escaped, uint8_t *ll, int ll_left)
 {
@@ -137,12 +143,14 @@ do {                                                    \
  } while(0)
 
 /*
- * Convert label list to escaped string. Return the number of bytes
- * consumed (escaped string will be null terminated).
+ * Convert label list to escaped string.
+ *
+ * Return the number of bytes consumed (escaped string will be null
+ * terminated) or less than zero in case of error.
  */
-int ll2escaped(uint8_t *ll, int ll_left, char *escaped, int escaped_left)
+int ll2escaped(const uint8_t *ll, int ll_left, char *escaped, int escaped_left)
 {
-  uint8_t *oll = ll;
+  const uint8_t *oll = ll;
   int i;
 
   while (1)

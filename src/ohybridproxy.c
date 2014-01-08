@@ -4,7 +4,6 @@
 #include <syslog.h>
 #include <string.h>
 #include <errno.h>
-#include <resolv.h>
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -16,6 +15,7 @@
 #include <libubox/ustream.h>
 
 #include "ohybridproxy.h"
+#include "dns_util.h"
 
 static struct list_head requests = LIST_HEAD_INIT(requests);
 static void ohp_handle_udp(struct uloop_fd *fd, __unused unsigned int events);
@@ -60,8 +60,8 @@ static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_
 	if (ntohs(hdr[2]) != 1 || hdr[3] || hdr[4])
 		return false;
 
-	char domain[256];
-	int complen = dn_expand(buf, eom, &buf[12], domain, sizeof(domain));
+	char domain[kDNSServiceMaxDomainName];
+	int complen = ll2escaped(buf, len, domain, sizeof(domain));
 	const uint8_t *opt = &question[complen + 4]; // Point to next RR (should be OPT or EOM)
 	if (complen <= 0 || opt > eom)
 		return false;
