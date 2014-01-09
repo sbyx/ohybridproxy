@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 11:13:07 2014 mstenber
- * Last modified: Thu Jan  9 22:25:50 2014 mstenber
- * Edit time:     18 min
+ * Last modified: Thu Jan  9 22:29:37 2014 mstenber
+ * Edit time:     19 min
  *
  */
 
@@ -29,9 +29,9 @@ void d2m_req_send(struct ohp_request *req __unused)
   r = d2m_produce_reply(req, buf, 10);
   assert(r < 0);
   assert(buf[0] == 42);
-  r = d2m_produce_reply(req, buf, 20);
-  assert(r < 0);
-  assert(buf[0] == 42);
+  r = d2m_produce_reply(req, buf, 12);
+  assert(r == 12);
+  assert(buf[r] == 42);
   r = d2m_produce_reply(req, buf, sizeof(buf));
   assert(r > 0);
   assert(buf[r] == 42);
