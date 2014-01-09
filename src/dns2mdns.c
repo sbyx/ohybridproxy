@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Thu Jan  9 21:46:21 2014 mstenber
- * Edit time:     220 min
+ * Last modified: Thu Jan  9 22:01:03 2014 mstenber
+ * Edit time:     224 min
  *
  */
 
@@ -316,7 +316,6 @@ static void _query_start(ohp_query q)
     }
   ifindex = ifo ? ifo->ifindex : 0;
   q->service = _get_conn();
-  INIT_LIST_HEAD(&q->rrs);
   const char *qb = q->query;
   if (ifo)
     qb = TO_MDNS(ifo, q->query);
@@ -461,12 +460,14 @@ d2m_req_add_query(ohp_request req, const char *query, uint16_t qtype)
   q->dq.qtype = qtype;
   q->dq.qclass = kDNSServiceClass_IN;
   q->request = req;
+  INIT_LIST_HEAD(&q->rrs);
   list_add_tail(&q->head, &req->queries);
   return q;
 }
 
 static void _rr_free(ohp_rr rr)
 {
+  free(rr->name);
   list_del(&rr->head);
   free(rr);
 }
@@ -476,6 +477,7 @@ static void _query_free(ohp_query q)
   list_del(&q->head);
   while (!list_empty(&q->rrs))
     _rr_free(list_first_entry(&q->rrs, struct ohp_rr, head));
+  free(q->query);
   free(q);
 }
 
@@ -551,6 +553,7 @@ static int _push_rr(ohp_rr rr,
   PUSH_RAW(b, len);
   if (real)
     memcpy(b, rr->drr.rdata, len);
+  /* XXX - rewrite PTR, SRV (and perhaps also TXT). */
   return len;
 }
 
