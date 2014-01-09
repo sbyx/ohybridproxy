@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 11:13:07 2014 mstenber
- * Last modified: Thu Jan  9 13:27:01 2014 mstenber
- * Edit time:     11 min
+ * Last modified: Thu Jan  9 21:37:24 2014 mstenber
+ * Edit time:     13 min
  *
  */
 
@@ -40,7 +40,10 @@ int main(int argc, char **argv)
     }
   r.maxlen = 65535;
   L_DEBUG("Configuring d2m");
-  d2m_add_interface(argv[1], "home");
+  if (d2m_add_interface(argv[1], "home") < 0)
+    {
+      exit(1);
+    }
   d2m_req_add_query(&r, argv[2],
                     argc > 3 ? atoi(argv[3]) : kDNSServiceType_ANY);
   d2m_req_start(&r);

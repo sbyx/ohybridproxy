@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Thu Jan  9 14:50:27 2014 mstenber
- * Edit time:     154 min
+ * Last modified: Thu Jan  9 21:46:21 2014 mstenber
+ * Edit time:     220 min
  *
  */
 
@@ -40,6 +40,7 @@ static DNSServiceRef conn = NULL;
 
 static void _query_start(struct ohp_query *q);
 static void _query_stop(struct ohp_query *q);
+static void _req_send(ohp_request req);
 
 static void
 _fd_callback(struct uloop_fd *u __unused, unsigned int events __unused)
@@ -97,7 +98,7 @@ _rewrite_domain(const char *src, char *buf, int buf_len,
   int l2 = strlen(dst_domain);
   int nl = l + l2 - l1 + 1;
 
-  L_DEBUG("_rewrite_domain %s->%d bytes (%s->%s)",
+  L_DEBUG("_rewrite_domain '%s'->%d bytes (%s->%s)",
           src, buf_len, src_domain, dst_domain);
   if (l < l1)
     {
@@ -116,7 +117,7 @@ _rewrite_domain(const char *src, char *buf, int buf_len,
     }
   memcpy(buf, src, l - l1);
   strcpy(buf + l - l1, dst_domain);
-  L_DEBUG("rewrote %s->%s", src, buf);
+  L_DEBUG("rewrote -> '%s'", buf);
   return buf;
 }
 
@@ -255,10 +256,16 @@ _service_callback(DNSServiceRef service __unused,
   rr = calloc(1, sizeof(*rr) + rdlen);
   if (!rr)
     return;
-  rr->rrtype = rrtype;
-  rr->rdlen = rdlen;
-  rr->ttl = ttl;
-  memcpy(rr->rdata, rdata, rdlen);
+  rr->name = strdup(TO_DNS(q->request->interface, name));
+  if (!rr->name)
+    {
+      free(rr);
+      return;
+    }
+  rr->drr.rrtype = rrtype;
+  rr->drr.rdlen = rdlen;
+  rr->drr.ttl = ttl;
+  memcpy(rr->drr.rdata, rdata, rdlen);
   list_add(&rr->head, &q->rrs);
   if (probably_cf)
     _query_stop(q);
@@ -299,6 +306,8 @@ static void _query_start(ohp_query q)
           if (!ifo)
             {
               L_INFO("impossible to serve query:%s", q->query);
+              if (!q->request->running)
+                _req_send(q->request);
               return;
             }
 
@@ -311,11 +320,11 @@ static void _query_start(ohp_query q)
   const char *qb = q->query;
   if (ifo)
     qb = TO_MDNS(ifo, q->query);
-  L_DEBUG("DNSServiceQueryRecord %s/%d @ %d", qb, q->qtype, ifindex);
+  L_DEBUG("DNSServiceQueryRecord %s @ %d", qb, ifindex);
   if ((err = DNSServiceQueryRecord(&q->service, flags, ifindex,
                                    qb,
-                                   q->qtype,
-                                   kDNSServiceClass_IN,
+                                   q->dq.qtype,
+                                   q->dq.qclass,
                                    _service_callback,
                                    q) != kDNSServiceErr_NoError))
     {
@@ -383,35 +392,43 @@ void d2m_req_stop(ohp_request req)
     _query_stop(q);
 }
 
-void d2m_add_interface(const char *ifname, const char *domain)
+int d2m_add_interface(const char *ifname, const char *domain)
 {
-  d2m_interface ifo = calloc(1, sizeof(*ifo));
-  /* Normalize the domain by encoding it to ll and back. */
+  d2m_interface ifo;
+    /* Normalize the domain by encoding it to ll and back. */
   uint8_t buf[kDNSServiceMaxDomainName];
   int r;
+  uint32_t ifindex = if_nametoindex(ifname);
 
+  if (!ifindex)
+    {
+      return -1;
+    }
+  ifo = calloc(1, sizeof(*ifo));
   if (!ifo)
     {
       L_ERR("calloc failure");
-      abort();
+      return -1;
     }
   if ((r = escaped2ll(domain, buf, sizeof(buf))) < 0)
     {
       L_ERR("escaped2ll failed for %s", domain);
-      return;
+      free(ifo);
+      return -1;
     }
   L_DEBUG(" escaped2ll = %d", r);
   if ((r = ll2escaped(buf, r, ifo->domain, kDNSServiceMaxDomainName)) < 0)
     {
       L_ERR("ll2escaped failed for %s", domain);
-      return;
+      return -1;
     }
   L_DEBUG(" ll2escaped= %d", r);
   strcpy(ifo->ifname, ifname);
-  ifo->ifindex = if_nametoindex(ifname);
+  ifo->ifindex = ifindex;
   ifo->to_dns_delta = strlen(ifo->domain) - strlen(LOCAL_SUFFIX);
   list_add(&ifo->head, &interfaces);
   L_DEBUG("d2m_add_interface if:%s/%d domain:%s (from %s)", ifname, ifo->ifindex, ifo->domain, domain);
+  return 0;
 }
 
 
@@ -428,9 +445,10 @@ d2m_req_add_query(ohp_request req, const char *query, uint16_t qtype)
     }
   list_for_each_entry(q, &req->queries, head)
     {
+      uint16_t oqtype = q->dq.qtype;
       if (strcmp(q->query, query) == 0
-          && (q->qtype == qtype
-              || q->qtype == kDNSServiceType_ANY))
+          && (oqtype == qtype
+              || oqtype == kDNSServiceType_ANY))
         {
           L_DEBUG(" .. but it already exists");
           return NULL;
@@ -440,7 +458,8 @@ d2m_req_add_query(ohp_request req, const char *query, uint16_t qtype)
   if (!q) abort();
   q->query = strdup(query);
   if (!q->query) abort();
-  q->qtype = qtype;
+  q->dq.qtype = qtype;
+  q->dq.qclass = kDNSServiceClass_IN;
   q->request = req;
   list_add_tail(&q->head, &req->queries);
   return q;
@@ -479,18 +498,150 @@ void d2m_req_free(ohp_request req)
   free(req);
 }
 
-int d2m_produce_reply(ohp_request req,
-                      uint8_t *buf, int buf_len,
-                      bool include_additional)
-{
-  ohp_query q;
-  int r = 0;
+#define PUSH_RAW(s, len)                                        \
+do {                                                            \
+  buf_len -= len;                                               \
+  if (buf_len < 0) {                                            \
+    L_DEBUG("unable to push %d byte structure (just %d left)",  \
+            (int)len, buf_len);                                 \
+    return -1;                                                  \
+  }                                                             \
+  s = (void *)buf;                                              \
+  buf += len;                                                   \
+ } while(0)
 
+#define PUSH(s) PUSH_RAW(s, sizeof(*s))
+
+#define TO_BE16(s)              \
+do {                            \
+  if (real)                     \
+    {                           \
+      uint16_t *i = (void *)s;  \
+      void *e = i;              \
+      e += sizeof(*s);          \
+      while (i != e)            \
+        {                       \
+          *i = cpu_to_be16(*i); \
+          i++;                  \
+        }                       \
+    }                           \
+} while(0)
+
+#define PUSH_EXPANDED(e)                        \
+do {                                            \
+  uint8_t _buf[256];                            \
+  int _r = escaped2ll(e, _buf, sizeof(_buf));   \
+  uint8_t *dst;                                 \
+  if (_r <=0 ) {                                \
+    return -1;                                  \
+  }                                             \
+  PUSH_RAW(dst, _r);                            \
+  if (real)                                     \
+    memcpy(dst, _buf, _r);                      \
+ } while(0)
+
+static int _push_rr(ohp_rr rr,
+                    uint8_t *buf, int buf_len,
+                    bool real)
+{
+  /* By default: We just push the data as is. */
+  uint8_t *b;
+  int len = rr->drr.rdlen;
+
+  PUSH_RAW(b, len);
+  if (real)
+    memcpy(b, rr->drr.rdata, len);
+  return len;
+}
+
+static int _produce_reply(ohp_request req,
+                          uint8_t *buf, int buf_len,
+                          bool include_additional,
+                          bool real)
+{
+  uint8_t *obuf = buf;
+  ohp_query q;
+  ohp_rr rr;
+  bool first = true;
+  dns_msg msg;
+  dns_query dq;
+  dns_rr dr;
+  int r;
+
+  /* XXX - should probably rewrite this to use name compression at
+   * some point. for the time being, just using dns_util's raw
+   * functions. */
+  PUSH(msg);
+  if (real)
+    {
+      memset(msg, 0, sizeof(*msg));
+    }
   list_for_each_entry(q, &req->queries, head)
     {
-      /* XXX */
+      if (first)
+        {
+          /* Push the query first. */
+          PUSH_EXPANDED(q->query);
+          PUSH(dq);
+          if (real)
+            {
+              msg->qdcount = 1;
+              *dq = q->dq;
+              TO_BE16(dq);
+            }
+        }
+      list_for_each_entry(rr, &q->rrs, head)
+        {
+          PUSH_EXPANDED(rr->name);
+          PUSH(dr);
+          r = _push_rr(rr, buf, buf_len, real);
+          if (r < 0)
+            return r;
+          buf += r;
+          buf_len -= r;
+          if (real)
+            {
+              *dr = rr->drr;
+              if (first)
+                msg->ancount++;
+              else
+                msg->arcount++;
+              TO_BE16(dr);
+              dr->ttl = cpu_to_be32(rr->drr.ttl);
+            }
+        }
+
+      first = false;
       if (!include_additional)
         break;
     }
-  return r;
+  if (first)
+    {
+      L_ERR("no query in d2m_produce_reply");
+      return -1;
+    }
+  TO_BE16(msg);
+  return buf - obuf;
+}
+
+int d2m_produce_reply(ohp_request req, uint8_t *buf, int buf_len)
+{
+  /* There's 3 different types of responses. */
+  /* 1) everything */
+  /* 2) answer-only */
+  /* 3) 'sorry, can't be arsed (partial answer) */
+  int l;
+
+  /* 1) */
+  l = _produce_reply(req, NULL, buf_len, true, false);
+  if (l >= 0)
+    return _produce_reply(req, buf, buf_len, true, true);
+
+  /* 2) */
+  l = _produce_reply(req, NULL, buf_len, false, false);
+  if (l >= 0)
+    return _produce_reply(req, buf, buf_len, false, true);
+
+  /* 3) (XXX) */
+  return -1;
 }
