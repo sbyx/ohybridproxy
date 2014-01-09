@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:23:19 2014 mstenber
- * Last modified: Thu Jan  9 12:02:51 2014 mstenber
- * Edit time:     33 min
+ * Last modified: Thu Jan  9 12:50:06 2014 mstenber
+ * Edit time:     36 min
  *
  */
 
@@ -41,7 +41,10 @@ typedef struct ohp_rr {
 typedef struct ohp_query {
   struct list_head head;
 
-  /* Actual raw query data. */
+  /*
+   * This is the DNS-SD version, not MDNS version of query. Conversion
+   * between DNS and MDNS happens on the go.
+   */
   char *query;
   uint16_t qtype;
 
@@ -110,7 +113,7 @@ void d2m_add_interface(const char *ifname, const char *domain);
 void d2m_req_send(ohp_request req);
 
 /* Add query (if it does not already exist). */
-struct ohp_query *d2m_req_add_query(ohp_request req, char *query, uint16_t qtype);
+struct ohp_query *d2m_req_add_query(ohp_request req, const char *query, uint16_t qtype);
 
 void d2m_req_free(ohp_request req);
 

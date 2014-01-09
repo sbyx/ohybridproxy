@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Thu Jan  9 12:03:06 2014 mstenber
- * Edit time:     104 min
+ * Last modified: Thu Jan  9 13:43:48 2014 mstenber
+ * Edit time:     150 min
  *
  */
 
@@ -18,8 +18,13 @@
 #include "ohybridproxy.h"
 #include "dns_util.h"
 
+#define LOCAL_SUFFIX "local."
+
 typedef struct d2m_interface_struct {
   struct list_head head;
+
+  /* how much less (or more) space we need */
+  int to_dns_delta;
 
   /* Domain assigned to the interface. */
   char domain[kDNSServiceMaxDomainName];
@@ -81,7 +86,54 @@ _string_endswith(const char *s, const char *end)
   return strcmp(s + (l1 - l2), end) == 0;
 }
 
+const char *
+_rewrite_domain(const char *src, char *buf, int buf_len,
+                const char *src_domain,
+                const char *dst_domain)
+{
+  int l = strlen(src);
+  int l1 = strlen(src_domain);
+  int l2 = strlen(dst_domain);
+  int nl = l + l2 - l1 + 1;
 
+  L_DEBUG("_rewrite_domain %s->%d bytes (%s->%s)",
+          src, buf_len, src_domain, dst_domain);
+  if (l < l1)
+    {
+      L_DEBUG("too short src for rewrite:%s", src);
+      return NULL;
+    }
+  if (strcmp(src + (l - l1), src_domain))
+    {
+      L_INFO("src domain mismatch: %s not in %s", src, src_domain);
+      return NULL;
+    }
+  if (buf_len < nl)
+    {
+      L_ERR("too short buffer in _rewrite_domain");
+      return NULL;
+    }
+  memcpy(buf, src, l - l1);
+  strcpy(buf + l - l1, dst_domain);
+  L_DEBUG("rewrote %s->%s", src, buf);
+  return buf;
+}
+
+#define TO_DNS(ifo, n)                                                  \
+(ifo ? _rewrite_domain(n,                                               \
+                       alloca(strlen(n) + 1 + ifo->to_dns_delta),       \
+                       strlen(n) + 1 + ifo->to_dns_delta,               \
+                       LOCAL_SUFFIX,                                    \
+                       ifo->domain)                                     \
+ : NULL)
+
+#define TO_MDNS(ifo, n)                                                 \
+(ifo ? _rewrite_domain(n,                                               \
+                       alloca(strlen(n) + 1 - ifo->to_dns_delta),       \
+                       strlen(n) + 1 - ifo->to_dns_delta,               \
+                       ifo->domain, LOCAL_SUFFIX                        \
+                       )                                                \
+ : NULL)
 
 static void
 _service_callback(DNSServiceRef service __unused,
@@ -151,15 +203,19 @@ _service_callback(DNSServiceRef service __unused,
     case kDNSServiceType_PTR:
       {
         char buf[kDNSServiceMaxDomainName];
+
         /* The relevant name is the only content of ptr. */
         if (ll2escaped(rdata, rdlen, buf, sizeof(buf))<0)
           {
             L_ERR("error decoding ptr record");
             return;
           }
-        if ((nq = d2m_req_add_query(q->request, buf, kDNSServiceType_SRV)))
+        const char *qb = TO_DNS(q->request->interface, buf);
+        if (!qb)
+            return;
+        if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_SRV)))
           _query_start(nq);
-        if ((nq = d2m_req_add_query(q->request, buf, kDNSServiceType_TXT)))
+        if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_TXT)))
           _query_start(nq);
       }
       /* Inverse PTRs are typically unique. */
@@ -176,9 +232,12 @@ _service_callback(DNSServiceRef service __unused,
             L_ERR("error decoding ptr record");
             return;
           }
-        if ((nq = d2m_req_add_query(q->request, buf, kDNSServiceType_A)))
+        const char *qb = TO_DNS(q->request->interface, buf);
+        if (!qb)
+            return;
+        if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_A)))
           _query_start(nq);
-        if ((nq = d2m_req_add_query(q->request, buf, kDNSServiceType_AAAA)))
+        if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_AAAA)))
           _query_start(nq);
       }
       probably_cf = true;
@@ -191,12 +250,12 @@ _service_callback(DNSServiceRef service __unused,
   if (ttl > MAXIMUM_MDNS_TO_DNS_TTL)
     ttl = MAXIMUM_MDNS_TO_DNS_TTL;
   L_DEBUG("adding rr %s/%d (%d bytes, %d ttl)",
-          name, rrtype, rdlen, ttl);
+          q->query, rrtype, rdlen, ttl);
   rr = calloc(1, sizeof(*rr) + rdlen);
   if (!rr)
     return;
   list_add(&rr->head, &q->rrs);
-  /* XXX - actually store the result somewhere and rewrite them. */
+  /* XXX - actually store the result somewhere and rewrite the contained rdata. */
   if (probably_cf)
     {
       _query_stop(q);
@@ -240,13 +299,19 @@ static void _query_start(ohp_query q)
               L_INFO("impossible to serve query:%s", q->query);
               return;
             }
+
+          q->request->interface = ifo;
         }
     }
   ifindex = ifo ? ifo->ifindex : 0;
   q->service = _get_conn();
   INIT_LIST_HEAD(&q->rrs);
+  const char *qb = q->query;
+  if (ifo)
+    qb = TO_MDNS(ifo, q->query);
+  L_DEBUG("DNSServiceQueryRecord %s/%d @ %d", qb, q->qtype, ifindex);
   if ((err = DNSServiceQueryRecord(&q->service, flags, ifindex,
-                                   q->query,
+                                   qb,
                                    q->qtype,
                                    kDNSServiceClass_IN,
                                    _service_callback,
@@ -333,20 +398,23 @@ void d2m_add_interface(const char *ifname, const char *domain)
       L_ERR("escaped2ll failed for %s", domain);
       return;
     }
+  L_DEBUG(" escaped2ll = %d", r);
   if ((r = ll2escaped(buf, r, ifo->domain, kDNSServiceMaxDomainName)) < 0)
     {
       L_ERR("ll2escaped failed for %s", domain);
       return;
     }
+  L_DEBUG(" ll2escaped= %d", r);
   strcpy(ifo->ifname, ifname);
   ifo->ifindex = if_nametoindex(ifname);
+  ifo->to_dns_delta = strlen(ifo->domain) - strlen(LOCAL_SUFFIX);
   list_add(&ifo->head, &interfaces);
-  L_DEBUG("d2m_add_interface if:%s/%d domain:%s", ifname, ifo->ifindex, domain);
+  L_DEBUG("d2m_add_interface if:%s/%d domain:%s (from %s)", ifname, ifo->ifindex, ifo->domain, domain);
 }
 
 
 ohp_query
-d2m_req_add_query(ohp_request req, char *query, uint16_t qtype)
+d2m_req_add_query(ohp_request req, const char *query, uint16_t qtype)
 {
   ohp_query q;
 
@@ -358,8 +426,9 @@ d2m_req_add_query(ohp_request req, char *query, uint16_t qtype)
     }
   list_for_each_entry(q, &req->queries, head)
     {
-      if (strcmp(q->query, query) == 0 && (q->qtype == qtype
-                                           || q->qtype == kDNSServiceType_ANY))
+      if (strcmp(q->query, query) == 0
+          && (q->qtype == qtype
+              || q->qtype == kDNSServiceType_ANY))
         {
           L_DEBUG(" .. but it already exists");
           return NULL;
