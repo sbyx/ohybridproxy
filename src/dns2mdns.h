@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:23:19 2014 mstenber
- * Last modified: Thu Jan  9 11:35:30 2014 mstenber
- * Edit time:     30 min
+ * Last modified: Thu Jan  9 12:02:51 2014 mstenber
+ * Edit time:     33 min
  *
  */
 
@@ -96,8 +96,8 @@ typedef struct ohp_request {
  * These two calls are used to start/stop underlying mdns processing
  * of a request.
  */
-void d2m_request_start(ohp_request req);
-void d2m_request_stop(ohp_request req);
+void d2m_req_start(ohp_request req);
+void d2m_req_stop(ohp_request req);
 
 /*
  * Add one real system interface, with specified domain (reverse
@@ -107,10 +107,11 @@ void d2m_add_interface(const char *ifname, const char *domain);
 
 
 /* This function should be provided by a client. */
-void d2m_request_send(ohp_request req);
+void d2m_req_send(ohp_request req);
 
 /* Add query (if it does not already exist). */
 struct ohp_query *d2m_req_add_query(ohp_request req, char *query, uint16_t qtype);
 
+void d2m_req_free(ohp_request req);
 
 #endif /* DNS2MDNS_H */

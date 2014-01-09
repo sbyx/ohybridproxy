@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Thu Jan  9 11:51:26 2014 mstenber
- * Edit time:     99 min
+ * Last modified: Thu Jan  9 12:03:06 2014 mstenber
+ * Edit time:     104 min
  *
  */
 
@@ -263,8 +263,8 @@ static void _req_send(ohp_request req)
   if (req->sent)
     return;
   req->sent = true;
-  L_DEBUG("calling d2m_request_send for %p", req);
-  d2m_request_send(req);
+  L_DEBUG("calling d2m_req_send for %p", req);
+  d2m_req_send(req);
 }
 
 static void _query_stop(ohp_query q)
@@ -286,14 +286,14 @@ static void _request_timeout(struct uloop_timeout *t)
 
   /* Just call stop, it will call send eventually if it already hasn't. */
   L_DEBUG("_request_timeout");
-  d2m_request_stop(req);
+  d2m_req_stop(req);
 }
 
-void d2m_request_start(ohp_request req)
+void d2m_req_start(ohp_request req)
 {
   ohp_query q;
 
-  L_DEBUG("d2m_request_start %p", req);
+  L_DEBUG("d2m_req_start %p", req);
   list_for_each_entry(q, &req->queries, head)
     {
       _query_start(q);
@@ -302,11 +302,11 @@ void d2m_request_start(ohp_request req)
   uloop_timeout_set(&req->timeout, MAXIMUM_REQUEST_DURATION_IN_MS);
 }
 
-void d2m_request_stop(ohp_request req)
+void d2m_req_stop(ohp_request req)
 {
   ohp_query q;
 
-  L_DEBUG("d2m_request_stop %p", req);
+  L_DEBUG("d2m_req_stop %p", req);
 
   /* Cancel the timeout if we already didn't fire it. */
   uloop_timeout_cancel(&req->timeout);
@@ -373,4 +373,37 @@ d2m_req_add_query(ohp_request req, char *query, uint16_t qtype)
   q->request = req;
   list_add_tail(&q->head, &req->queries);
   return q;
+}
+
+static void _rr_free(ohp_rr rr)
+{
+  list_del(&rr->head);
+  free(rr);
+}
+
+static void _query_free(ohp_query q)
+{
+  list_del(&q->head);
+  while (!list_empty(&q->rrs))
+    _rr_free(list_first_entry(&q->rrs, struct ohp_rr, head));
+  free(q);
+}
+
+static void _req_free(ohp_request req)
+{
+  if (req->head.next)
+    list_del(&req->head);
+  /* Free shouldn't trigger send. */
+  req->sent = true;
+  /* Stop sub-queries. */
+  d2m_req_stop(req);
+  /* Free contents. */
+  while (!list_empty(&req->queries))
+    _query_free(list_first_entry(&req->queries, struct ohp_query, head));
+}
+
+void d2m_req_free(ohp_request req)
+{
+  _req_free(req);
+  free(req);
 }

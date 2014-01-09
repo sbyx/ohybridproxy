@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 11:13:07 2014 mstenber
- * Last modified: Thu Jan  9 11:45:56 2014 mstenber
- * Edit time:     7 min
+ * Last modified: Thu Jan  9 12:05:15 2014 mstenber
+ * Edit time:     9 min
  *
  */
 
@@ -16,9 +16,9 @@
 #include "dns2mdns.h"
 #include "dns2mdns.c"
 
-void d2m_request_send(struct ohp_request *req)
+void d2m_req_send(struct ohp_request *req __unused)
 {
-    uloop_end();
+  uloop_end();
 }
 
 int main(int argc, char **argv)
@@ -43,8 +43,12 @@ int main(int argc, char **argv)
   d2m_add_interface(argv[1], ".local.");
   d2m_req_add_query(&r, argv[2],
                     argc > 3 ? atoi(argv[3]) : kDNSServiceType_ANY);
-  d2m_request_start(&r);
+  d2m_req_start(&r);
   L_INFO("Entering event loop");
   uloop_run();
+
+  /* Clean up - hopefully we won't leak memory if we do it right. */
+  _req_free(&r);
+  DNSServiceRefDeallocate(conn);
   return 0;
 }

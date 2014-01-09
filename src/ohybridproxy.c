@@ -34,7 +34,7 @@ struct ohp_request_udp {
 	struct sockaddr addr[];
 };
 
-void d2m_request_send(struct ohp_request *req)
+void d2m_req_send(struct ohp_request *req)
 {
   /* Send the given result back to the client. */
   /* First query: answers what client _asked_ (->rrs). */
@@ -88,15 +88,6 @@ static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_
 			req->dnsid, req->qtype, req->query, (long)req->maxlen);
 	list_add(&req->head, &requests);
 	return true;
-}
-
-
-static void ohp_free_request(struct ohp_request *req)
-{
-	if (req->head.next)
-		list_del(&req->head);
-	// TODO - deal with 'queries' (the 'stop' method should do it already)
-	free(req); // TODO: should maybe use container_of before, but it's the first entry anyway
 }
 
 
@@ -167,7 +158,7 @@ static void ohp_handle_tcp_done(struct ustream *s)
 	struct ohp_request_tcp *tcp = container_of(s, struct ohp_request_tcp, conn);
 	ustream_free(s);
 	close(tcp->conn.fd.fd);
-	ohp_free_request(&tcp->req);
+	d2m_req_free(&tcp->req);
 }
 
 
