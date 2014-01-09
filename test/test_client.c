@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 11:13:07 2014 mstenber
- * Last modified: Thu Jan  9 21:37:24 2014 mstenber
- * Edit time:     13 min
+ * Last modified: Thu Jan  9 22:25:50 2014 mstenber
+ * Edit time:     18 min
  *
  */
 
@@ -16,8 +16,26 @@
 #include "dns2mdns.h"
 #include "dns2mdns.c"
 
+#include <assert.h>
+#include <string.h>
+
 void d2m_req_send(struct ohp_request *req __unused)
 {
+  /* Test reply production - with too small, and sufficient buffer. */
+  unsigned char buf[65535];
+  int r;
+
+  memset(buf, 42, sizeof(buf));
+  r = d2m_produce_reply(req, buf, 10);
+  assert(r < 0);
+  assert(buf[0] == 42);
+  r = d2m_produce_reply(req, buf, 20);
+  assert(r < 0);
+  assert(buf[0] == 42);
+  r = d2m_produce_reply(req, buf, sizeof(buf));
+  assert(r > 0);
+  assert(buf[r] == 42);
+  L_DEBUG("d2m_produce_reply produced %d bytes of something", r);
   uloop_end();
 }
 
