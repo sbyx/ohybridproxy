@@ -10,8 +10,14 @@ if(${L_LEVEL})
 	add_definitions(-DL_LEVEL=${L_LEVEL})
 endif(${L_LEVEL})
 
+if(${APPLE}) 
+set(dns_sd "") 
+else(${APPLE})
+set(dns_sd "dns_sd")
+endif(${APPLE})
+
 add_executable(ohybridproxy src/ohybridproxy.c src/dns2mdns.c)
-target_link_libraries(ohybridproxy ubox dns_sd)
+target_link_libraries(ohybridproxy ubox ${dns_sd})
 
 # Unit test stuff
 
@@ -36,10 +42,10 @@ add_test(dns2mdns test_dns2mdns)
 add_dependencies(check test_dns2mdns)
 
 add_executable(test_mdnsresponder test/test_mdnsresponder.c)
-target_link_libraries(test_mdnsresponder ubox dns_sd)
+target_link_libraries(test_mdnsresponder ubox ${dns_sd})
 
 add_executable(test_client test/test_client.c)
-target_link_libraries(test_client ubox dns_sd)
+target_link_libraries(test_client ubox ${dns_sd})
 
 # Installation rules
 install(TARGETS ohybridproxy DESTINATION sbin/)
