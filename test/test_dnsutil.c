@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 13:01:23 2014 mstenber
- * Last modified: Wed Jan  8 14:34:31 2014 mstenber
- * Edit time:     31 min
+ * Last modified: Thu Jan  9 10:33:43 2014 mstenber
+ * Edit time:     32 min
  *
  */
 
@@ -49,7 +49,7 @@ void check_test_string(const char *s, int es, int es2)
   char buf2[128];
 
   L_DEBUG("check_test_string %s => %d => %d", s, es, es2);
-  for (j = 0 ; j < es + 2 ; j++)
+  for (j = -1 ; j < es + 2 ; j++)
     {
       buf[j+1] = 42;
       r = escaped2ll(s, j ? buf : NULL, j);
@@ -66,7 +66,7 @@ void check_test_string(const char *s, int es, int es2)
       else
         {
           int or = r;
-          for (k = 0 ; k < es2 + 2 ; k++)
+          for (k = -1 ; k < es2 + 2 ; k++)
             {
               /* Try to re-encode it to buf2. */
               buf2[k+1] = 42;
