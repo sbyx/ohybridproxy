@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Thu Jan  9 13:43:48 2014 mstenber
- * Edit time:     150 min
+ * Last modified: Thu Jan  9 14:50:27 2014 mstenber
+ * Edit time:     154 min
  *
  */
 
@@ -16,6 +16,7 @@
 
 #include "dns2mdns.h"
 #include "ohybridproxy.h"
+#include "dns_proto.h"
 #include "dns_util.h"
 
 #define LOCAL_SUFFIX "local."
@@ -254,12 +255,13 @@ _service_callback(DNSServiceRef service __unused,
   rr = calloc(1, sizeof(*rr) + rdlen);
   if (!rr)
     return;
+  rr->rrtype = rrtype;
+  rr->rdlen = rdlen;
+  rr->ttl = ttl;
+  memcpy(rr->rdata, rdata, rdlen);
   list_add(&rr->head, &q->rrs);
-  /* XXX - actually store the result somewhere and rewrite the contained rdata. */
   if (probably_cf)
-    {
-      _query_stop(q);
-    }
+    _query_stop(q);
 }
 
 static void _query_start(ohp_query q)
@@ -475,4 +477,20 @@ void d2m_req_free(ohp_request req)
 {
   _req_free(req);
   free(req);
+}
+
+int d2m_produce_reply(ohp_request req,
+                      uint8_t *buf, int buf_len,
+                      bool include_additional)
+{
+  ohp_query q;
+  int r = 0;
+
+  list_for_each_entry(q, &req->queries, head)
+    {
+      /* XXX */
+      if (!include_additional)
+        break;
+    }
+  return r;
 }

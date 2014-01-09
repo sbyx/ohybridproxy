@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:23:19 2014 mstenber
- * Last modified: Thu Jan  9 12:50:06 2014 mstenber
- * Edit time:     36 min
+ * Last modified: Thu Jan  9 14:27:58 2014 mstenber
+ * Edit time:     39 min
  *
  */
 
@@ -114,6 +114,12 @@ void d2m_req_send(ohp_request req);
 
 /* Add query (if it does not already exist). */
 struct ohp_query *d2m_req_add_query(ohp_request req, const char *query, uint16_t qtype);
+
+/* Produce reply to the pre-allocated buffer. Return value is the
+ * number of bytes used, or -1 if the reply buffer is too small. */
+int d2m_produce_reply(ohp_request req,
+                      uint8_t *buf, int buf_len,
+                      bool include_additional);
 
 void d2m_req_free(ohp_request req);
 
