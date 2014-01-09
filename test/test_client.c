@@ -19,7 +19,7 @@
 #include <assert.h>
 #include <string.h>
 
-void d2m_req_send(struct ohp_request *req __unused)
+void ohp_send_reply(struct ohp_request *req __unused)
 {
   /* Test reply production - with too small, and sufficient buffer. */
   unsigned char buf[65535];
@@ -69,7 +69,7 @@ int main(int argc, char **argv)
   uloop_run();
 
   /* Clean up - hopefully we won't leak memory if we do it right. */
-  _req_free(&r);
+  d2m_req_free(&r);
   DNSServiceRefDeallocate(conn);
   return 0;
 }

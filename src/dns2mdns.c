@@ -256,7 +256,9 @@ _service_callback(DNSServiceRef service __unused,
   rr = calloc(1, sizeof(*rr) + rdlen);
   if (!rr)
     return;
-  rr->name = strdup(TO_DNS(q->request->interface, name));
+  const char *rrname = TO_DNS(q->request->interface, name);
+  if (rrname)
+	  rr->name = strdup(rrname);
   if (!rr->name)
     {
       free(rr);
@@ -339,7 +341,7 @@ static void _req_send(ohp_request req)
     return;
   req->sent = true;
   L_DEBUG("calling d2m_req_send for %p", req);
-  d2m_req_send(req);
+  ohp_send_reply(req);
 }
 
 static void _query_stop(ohp_query q)
@@ -481,10 +483,8 @@ static void _query_free(ohp_query q)
   free(q);
 }
 
-static void _req_free(ohp_request req)
+void d2m_req_free(ohp_request req)
 {
-  if (req->head.next)
-    list_del(&req->head);
   /* Free shouldn't trigger send. */
   req->sent = true;
   /* Stop sub-queries. */
@@ -492,12 +492,6 @@ static void _req_free(ohp_request req)
   /* Free contents. */
   while (!list_empty(&req->queries))
     _query_free(list_first_entry(&req->queries, struct ohp_query, head));
-}
-
-void d2m_req_free(ohp_request req)
-{
-  _req_free(req);
-  free(req);
 }
 
 #define PUSH_RAW(s, len)                                        \

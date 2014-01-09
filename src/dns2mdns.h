@@ -60,7 +60,6 @@ typedef struct ohp_query {
 
 /* Shared structure between this + main ohp loop. */
 typedef struct ohp_request {
-  struct list_head head;
   struct uloop_timeout timeout;
 
   /* Information from the DNS request by client. */
@@ -105,10 +104,6 @@ void d2m_req_stop(ohp_request req);
  * happens automatically) to the request processing logic.
  */
 int d2m_add_interface(const char *ifname, const char *domain);
-
-
-/* This function should be provided by a client. */
-void d2m_req_send(ohp_request req);
 
 /* Add query (if it does not already exist). */
 struct ohp_query *d2m_req_add_query(ohp_request req, const char *query, uint16_t qtype);

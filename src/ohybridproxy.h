@@ -31,6 +31,7 @@
 #include <syslog.h>
 #include <sys/types.h>
 #include <libubox/utils.h>
+#include "dns2mdns.h"
 
 
 typedef int64_t ohp_time_t;
@@ -45,6 +46,7 @@ static inline ohp_time_t ohp_time(void) {
 			((ohp_time_t)ts.tv_nsec / (1000000000 / OHP_TIME_PER_SECOND));
 }
 
+void ohp_send_reply(struct ohp_request *req);
 
 // Logging macros
 #if L_LEVEL >= 3

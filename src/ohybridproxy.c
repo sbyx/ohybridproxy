@@ -16,9 +16,10 @@
 #include "ohybridproxy.h"
 #include "dns_util.h"
 
-static struct list_head requests = LIST_HEAD_INIT(requests);
 static void ohp_handle_udp(struct uloop_fd *fd, __unused unsigned int events);
 static void ohp_handle_tcp_conn(struct uloop_fd *fd, __unused unsigned int events);
+static void ohp_handle_tcp_write(struct ustream *fd, __unused int bytes);
+static void ohp_handle_tcp_done(struct ustream *s);
 
 static struct uloop_fd udpsrv = { .cb = ohp_handle_udp };
 static struct uloop_fd tcpsrv = { .cb = ohp_handle_tcp_conn };
@@ -34,13 +35,35 @@ struct ohp_request_udp {
 	struct sockaddr addr[];
 };
 
-void d2m_req_send(struct ohp_request *req)
+
+void ohp_send_reply(struct ohp_request *req)
 {
-  /* Send the given result back to the client. */
-  /* First query: answers what client _asked_ (->rrs). */
-  /* Further queries: additional records for the client. */
-  /* XXX */
+	struct ohp_request_tcp *tcp = container_of(req, struct ohp_request_tcp, req);
+	struct ohp_request_udp *udp = container_of(req, struct ohp_request_udp, req);
+
+	if (req->udp) {
+		uint8_t *buf = alloca(req->maxlen);
+		int len = d2m_produce_reply(req, buf, req->maxlen);
+		if (len > 0)
+			sendto(udpsrv.fd, buf, len, 0, udp->addr, udp->addrlen);
+		d2m_req_free(req);
+		free(udp);
+	} else {
+		uint8_t *buf = alloca(req->maxlen + 2);
+		int len = d2m_produce_reply(req, &buf[2], req->maxlen);
+		if (len > 0) {
+			buf[0] = (len >> 8) & 0xff;
+			buf[1] = (len >> 0) & 0xff;
+			ustream_write(&tcp->conn.stream, (char*)buf, req->maxlen + 2, false);
+			uloop_timeout_set(&tcp->conn.stream.state_change, 3000); // TODO: Define write timeout
+			ohp_handle_tcp_write(&tcp->conn.stream, 0); // Check if writing was immediate
+		} else {
+			ohp_handle_tcp_done(&tcp->conn.stream);
+		}
+
+	}
 }
+
 
 static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_t len, bool udp)
 {
@@ -83,10 +106,6 @@ static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_
 
 		// TODO: Parse LLQ options?
 	}
-
-	L_DEBUG("Parsed a request %hx of type %u for %s with max response length %ldB",
-			req->dnsid, req->qtype, req->query, (long)req->maxlen);
-	list_add(&req->head, &requests);
 	return true;
 }
 
@@ -130,7 +149,7 @@ static void ohp_handle_tcp_data(struct ustream *s, __unused int bytes_new)
 	L_DEBUG("TCP connection %i has %i bytes pending", tcp->conn.fd.fd, pending);
 
 	// Basic sanity check
-	if (pending < 2 || tcp->req.head.next)
+	if (pending < 2 || uloop_timeout_remaining(&tcp->req.timeout) >= 0)
 		return;
 
 	size_t len = ((size_t)data[0]) << 8 | data[1];
@@ -151,6 +170,17 @@ static void ohp_handle_tcp_data(struct ustream *s, __unused int bytes_new)
 	uloop_timeout_cancel(&tcp->conn.stream.state_change);
 }
 
+// Write notification
+static void ohp_handle_tcp_write(struct ustream *fd, __unused int bytes)
+{
+	if (ustream_write_pending(fd)) {
+		// Wrote response, recycle session
+		struct ustream_fd *ufd = container_of(fd, struct ustream_fd, stream);
+		struct ohp_request_tcp *tcp = container_of(ufd, struct ohp_request_tcp, conn);
+		d2m_req_free(&tcp->req);
+		memset(&tcp->req, 0, sizeof(tcp->req));
+	}
+}
 
 // TCP transmission has ended, either because of success or timeout or other error
 static void ohp_handle_tcp_done(struct ustream *s)
@@ -159,6 +189,7 @@ static void ohp_handle_tcp_done(struct ustream *s)
 	ustream_free(s);
 	close(tcp->conn.fd.fd);
 	d2m_req_free(&tcp->req);
+	free(tcp);
 }
 
 
