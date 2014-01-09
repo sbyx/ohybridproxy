@@ -34,9 +34,11 @@ struct ohp_request_udp {
 	struct sockaddr addr[];
 };
 
-void d2m_request_send(struct ohp_request *req, uint8_t *data, size_t data_len)
+void d2m_request_send(struct ohp_request *req)
 {
   /* Send the given result back to the client. */
+  /* First query: answers what client _asked_ (->rrs). */
+  /* Further queries: additional records for the client. */
   /* XXX */
 }
 

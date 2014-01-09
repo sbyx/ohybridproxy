@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:23:19 2014 mstenber
- * Last modified: Wed Jan  8 20:17:57 2014 mstenber
- * Edit time:     22 min
+ * Last modified: Thu Jan  9 11:35:30 2014 mstenber
+ * Edit time:     30 min
  *
  */
 
@@ -18,7 +18,27 @@
 #include <libubox/uloop.h>
 #include <dns_sd.h>
 
-struct ohp_query {
+/* If mdns claims TTL longer than this, we provide smaller one anyway,
+ * as there's no invalidation mechanism available. */
+#define MAXIMUM_MDNS_TO_DNS_TTL 120
+
+/* How many milliseconds can we wait for results until we're done?
+ * MDNS operates on sub-second speed, and some DNS clients starts
+ * resending at second. Sigh. */
+#define MAXIMUM_REQUEST_DURATION_IN_MS 500
+
+typedef struct ohp_rr {
+  struct list_head head;
+
+  /* Name has to match query it is within -> not included. */
+  uint16_t rrtype;
+  uint16_t rdlen;
+  uint32_t ttl;
+
+  uint8_t rdata[];
+} *ohp_rr;
+
+typedef struct ohp_query {
   struct list_head head;
 
   /* Actual raw query data. */
@@ -31,11 +51,14 @@ struct ohp_query {
 
   /* Backpointer to the request we are in. */
   struct ohp_request *request;
-};
+
+  /* The results of the particular (sub-)query. */
+  struct list_head rrs;
+} *ohp_query;
 
 
 /* Shared structure between this + main ohp loop. */
-struct ohp_request {
+typedef struct ohp_request {
   struct list_head head;
   struct uloop_timeout timeout;
 
@@ -48,11 +71,18 @@ struct ohp_request {
    * rest 'additional records' ones. */
   struct list_head queries;
 
+  /* Number of running queries. */
+  int running;
+
+  /* Have we sent a response already? (refactor this to be rr-specific
+   * in LLQ case). */
+  bool sent;
+
   /* Used interface (if any; reverse queries we do on all interfaces
    * and do mapping based on result. the first result 'glues' the
    * interface, though) */
   struct d2m_interface_struct *interface;
-};
+} *ohp_request;;
 
 /*
  * This module handles actual interface with the lower level mdns, and
@@ -66,8 +96,8 @@ struct ohp_request {
  * These two calls are used to start/stop underlying mdns processing
  * of a request.
  */
-void d2m_request_start(struct ohp_request *req);
-void d2m_request_stop(struct ohp_request *req);
+void d2m_request_start(ohp_request req);
+void d2m_request_stop(ohp_request req);
 
 /*
  * Add one real system interface, with specified domain (reverse
@@ -77,10 +107,10 @@ void d2m_add_interface(const char *ifname, const char *domain);
 
 
 /* This function should be provided by a client. */
-void d2m_request_send(struct ohp_request *req, uint8_t *data, size_t data_len);
+void d2m_request_send(ohp_request req);
 
 /* Add query (if it does not already exist). */
-struct ohp_query *ohp_req_add_query(struct ohp_request *req, char *query, uint16_t qtype);
+struct ohp_query *d2m_req_add_query(ohp_request req, char *query, uint16_t qtype);
 
 
 #endif /* DNS2MDNS_H */

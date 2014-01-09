@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Wed Jan  8 20:25:22 2014 mstenber
- * Edit time:     50 min
+ * Last modified: Thu Jan  9 11:51:26 2014 mstenber
+ * Edit time:     99 min
  *
  */
 
@@ -19,7 +19,7 @@
 #include "dns_util.h"
 
 typedef struct d2m_interface_struct {
-  struct list_head lh;
+  struct list_head head;
 
   /* Domain assigned to the interface. */
   char domain[kDNSServiceMaxDomainName];
@@ -31,6 +31,9 @@ typedef struct d2m_interface_struct {
 
 static struct list_head interfaces = LIST_HEAD_INIT(interfaces);
 static DNSServiceRef conn = NULL;
+
+static void _query_start(struct ohp_query *q);
+static void _query_stop(struct ohp_query *q);
 
 static void
 _fd_callback(struct uloop_fd *u __unused, unsigned int events __unused)
@@ -62,8 +65,20 @@ static DNSServiceRef _get_conn()
           L_ERR("Error in uloop_fd_add");
           abort();
         }
+      L_DEBUG("DNSServiceCreateConnection succeeded; now have connection");
     }
   return conn;
+}
+
+static bool
+_string_endswith(const char *s, const char *end)
+{
+  int l1 = strlen(s);
+  int l2 = strlen(end);
+
+  if (l1 < l2)
+    return false;
+  return strcmp(s + (l1 - l2), end) == 0;
 }
 
 
@@ -73,15 +88,18 @@ _service_callback(DNSServiceRef service __unused,
                   DNSServiceFlags flags,
                   uint32_t ifindex,
                   DNSServiceErrorType error,
-                  const char *name __unused,
+                  const char *name,
                   uint16_t rrtype,
-                  uint16_t rrclass __unused,
+                  uint16_t rrclass,
                   uint16_t rdlen,
                   const void *rdata,
                   uint32_t ttl,
              void *context)
 {
-  struct ohp_query *q = context;
+  ohp_query q = context;
+  ohp_query nq;
+  ohp_rr rr;
+  bool probably_cf = false;
 
   if (error != kDNSServiceErr_NoError)
     {
@@ -93,20 +111,99 @@ _service_callback(DNSServiceRef service __unused,
       L_INFO("non-add _service_callback ignored for now (no LLQ)");
       return;
     }
+  if (rrclass != kDNSServiceClass_IN)
+    {
+      L_INFO("ignoring weird service class %d", rrclass);
+      return;
+    }
+  /*
+   * Specify interface for the whole request if it is not set yet.
+   */
+  if (!q->request->interface)
+    {
+      d2m_interface ip;
+
+      list_for_each_entry(ip, &interfaces, head)
+        {
+          if (ip->ifindex == ifindex)
+            {
+              q->request->interface = ip;
+              break;
+            }
+        }
+      if (!q->request->interface)
+        {
+          L_INFO("ignoring from unconfigured interface#%d for %s/%d",
+                 ifindex, name, rrtype);
+          return;
+        }
+    }
+  /*
+   * Start nested queries if any. RFC6763 suggests that PTR records
+   * should include pointed SRV/TXT records, and SRV records should
+   * include pointed A/AAAA records (in recursive way).
+   *
+   * This may result in a large number of total queries. Hopefully
+   * dns_sd is up to it.
+   */
+  switch (rrtype)
+    {
+    case kDNSServiceType_PTR:
+      {
+        char buf[kDNSServiceMaxDomainName];
+        /* The relevant name is the only content of ptr. */
+        if (ll2escaped(rdata, rdlen, buf, sizeof(buf))<0)
+          {
+            L_ERR("error decoding ptr record");
+            return;
+          }
+        if ((nq = d2m_req_add_query(q->request, buf, kDNSServiceType_SRV)))
+          _query_start(nq);
+        if ((nq = d2m_req_add_query(q->request, buf, kDNSServiceType_TXT)))
+          _query_start(nq);
+      }
+      /* Inverse PTRs are typically unique. */
+      if (_string_endswith(name, ".arpa."))
+        probably_cf = true;
+      break;
+    case kDNSServiceType_SRV:
+      {
+        char buf[kDNSServiceMaxDomainName];
+        /* SRV record has 6 byte header + then name we're interested in. */
+        /* The relevant name is the only content of ptr. */
+        if (ll2escaped(rdata + 6, rdlen - 6, buf, sizeof(buf))<0)
+          {
+            L_ERR("error decoding ptr record");
+            return;
+          }
+        if ((nq = d2m_req_add_query(q->request, buf, kDNSServiceType_A)))
+          _query_start(nq);
+        if ((nq = d2m_req_add_query(q->request, buf, kDNSServiceType_AAAA)))
+          _query_start(nq);
+      }
+      probably_cf = true;
+      break;
+    case kDNSServiceType_A:
+    case kDNSServiceType_AAAA:
+      probably_cf = true;
+      break;
+    }
+  if (ttl > MAXIMUM_MDNS_TO_DNS_TTL)
+    ttl = MAXIMUM_MDNS_TO_DNS_TTL;
+  L_DEBUG("adding rr %s/%d (%d bytes, %d ttl)",
+          name, rrtype, rdlen, ttl);
+  rr = calloc(1, sizeof(*rr) + rdlen);
+  if (!rr)
+    return;
+  list_add(&rr->head, &q->rrs);
+  /* XXX - actually store the result somewhere and rewrite them. */
+  if (probably_cf)
+    {
+      _query_stop(q);
+    }
 }
 
-static bool
-string_endswith(const char *s, const char *end)
-{
-  int l1 = strlen(s);
-  int l2 = strlen(end);
-
-  if (l1 < l2)
-    return false;
-  return strcmp(s + (l1 - l2), end) == 0;
-}
-
-void d2m_query_start(struct ohp_query *q)
+static void _query_start(ohp_query q)
 {
   int flags = kDNSServiceFlagsShareConnection;
   int ifindex;
@@ -114,32 +211,40 @@ void d2m_query_start(struct ohp_query *q)
   d2m_interface ifo = NULL, ip;
 
   /*
-   * Look at the request. Either it ends with one of the domains we
-   * already have, or it ends with arpa, or we ignore it.
+   * First off, if the _request_ is already bound to an interface, we
+   * can use that.
    */
-  if (string_endswith(q->query, ".arpa."))
+  if (!(ifo = q->request->interface))
     {
-      ifindex = 0;
-      ifo = NULL;
-    }
-  else
-    {
-      list_for_each_entry(ip, &interfaces, lh)
+      /*
+       * Look at the request. Either it ends with one of the domains we
+       * already have, or it ends with arpa, or we ignore it.
+       */
+      if (_string_endswith(q->query, ".arpa."))
         {
-          if (string_endswith(q->query, ip->domain))
-            {
-              ifo = ip;
-              break;
-            }
+          ifo = NULL;
         }
-
-      if (!ifo)
+      else
         {
-          L_INFO("impossible to serve query:%s", q->query);
-          return;
+          list_for_each_entry(ip, &interfaces, head)
+            {
+              if (_string_endswith(q->query, ip->domain))
+                {
+                  ifo = ip;
+                  break;
+                }
+            }
+
+          if (!ifo)
+            {
+              L_INFO("impossible to serve query:%s", q->query);
+              return;
+            }
         }
     }
   ifindex = ifo ? ifo->ifindex : 0;
+  q->service = _get_conn();
+  INIT_LIST_HEAD(&q->rrs);
   if ((err = DNSServiceQueryRecord(&q->service, flags, ifindex,
                                    q->query,
                                    q->qtype,
@@ -150,28 +255,65 @@ void d2m_query_start(struct ohp_query *q)
       L_ERR("Error %d initializing DNSServiceQueryRecord", err);
       abort();
     }
+  q->request->running++;
 }
 
-void d2m_query_stop(struct ohp_query *q)
+static void _req_send(ohp_request req)
+{
+  if (req->sent)
+    return;
+  req->sent = true;
+  L_DEBUG("calling d2m_request_send for %p", req);
+  d2m_request_send(req);
+}
+
+static void _query_stop(ohp_query q)
 {
   if (q->service)
-    DNSServiceRefDeallocate(q->service);
+    {
+      DNSServiceRefDeallocate(q->service);
+      q->service = NULL;
+      if (!(--(q->request->running)))
+        {
+          _req_send(q->request);
+        }
+    }
 }
 
-void d2m_request_start(struct ohp_request *req)
+static void _request_timeout(struct uloop_timeout *t)
 {
-  struct ohp_query *q;
+  ohp_request req = container_of(t, struct ohp_request, timeout);
 
-  list_for_each_entry(q, &req->queries, head)
-    d2m_query_start(q);
+  /* Just call stop, it will call send eventually if it already hasn't. */
+  L_DEBUG("_request_timeout");
+  d2m_request_stop(req);
 }
 
-void d2m_request_stop(struct ohp_request *req)
+void d2m_request_start(ohp_request req)
 {
-  struct ohp_query *q;
+  ohp_query q;
 
+  L_DEBUG("d2m_request_start %p", req);
   list_for_each_entry(q, &req->queries, head)
-    d2m_query_stop(q);
+    {
+      _query_start(q);
+    }
+  req->timeout.cb = _request_timeout;
+  uloop_timeout_set(&req->timeout, MAXIMUM_REQUEST_DURATION_IN_MS);
+}
+
+void d2m_request_stop(ohp_request req)
+{
+  ohp_query q;
+
+  L_DEBUG("d2m_request_stop %p", req);
+
+  /* Cancel the timeout if we already didn't fire it. */
+  uloop_timeout_cancel(&req->timeout);
+
+  /* Stop the sub-queries. */
+  list_for_each_entry(q, &req->queries, head)
+    _query_stop(q);
 }
 
 void d2m_add_interface(const char *ifname, const char *domain)
@@ -198,25 +340,37 @@ void d2m_add_interface(const char *ifname, const char *domain)
     }
   strcpy(ifo->ifname, ifname);
   ifo->ifindex = if_nametoindex(ifname);
-  list_add(&ifo->lh, &interfaces);
+  list_add(&ifo->head, &interfaces);
+  L_DEBUG("d2m_add_interface if:%s/%d domain:%s", ifname, ifo->ifindex, domain);
 }
 
 
-struct ohp_query *
-d2m_req_add_query(struct ohp_request *req, char *query, uint16_t qtype)
+ohp_query
+d2m_req_add_query(ohp_request req, char *query, uint16_t qtype)
 {
-  struct ohp_query *q;
+  ohp_query q;
 
+  /* Determine if it's uninitialized. */
+  L_DEBUG("adding query %s/%d to %p", query, qtype, req);
+  if (!req->queries.next)
+    {
+      INIT_LIST_HEAD(&req->queries);
+    }
   list_for_each_entry(q, &req->queries, head)
     {
-      if (strcmp(q->query, query) == 0 && q->qtype == qtype)
-        return NULL;
+      if (strcmp(q->query, query) == 0 && (q->qtype == qtype
+                                           || q->qtype == kDNSServiceType_ANY))
+        {
+          L_DEBUG(" .. but it already exists");
+          return NULL;
+        }
     }
   q = calloc(1, sizeof(*q));
   if (!q) abort();
   q->query = strdup(query);
   if (!q->query) abort();
   q->qtype = qtype;
+  q->request = req;
   list_add_tail(&q->head, &req->queries);
   return q;
 }

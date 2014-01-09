@@ -38,6 +38,9 @@ add_dependencies(check test_dns2mdns)
 add_executable(test_mdnsresponder test/test_mdnsresponder.c)
 target_link_libraries(test_mdnsresponder ubox)
 
+add_executable(test_client test/test_client.c)
+target_link_libraries(test_client ubox)
+
 # Installation rules
 install(TARGETS ohybridproxy DESTINATION sbin/)
 
