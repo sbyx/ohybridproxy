@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Fri Jan 10 17:02:22 2014 mstenber
- * Edit time:     257 min
+ * Last modified: Fri Jan 10 17:04:48 2014 mstenber
+ * Edit time:     259 min
  *
  */
 
@@ -662,7 +662,9 @@ static int _produce_reply(ohp_request req,
                 msg->ancount++;
               else
                 msg->arcount++;
+              dr->rdlen = r; /* rewrite may have changed length */
               TO_BE16(dr);
+              /* TO_BE16 won't cover BE32 -> convert TTL separately here. */
               dr->ttl = cpu_to_be32(rr->drr.ttl);
             }
         }
