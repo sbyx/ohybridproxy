@@ -210,6 +210,7 @@ static void ohp_handle_tcp_conn(struct uloop_fd *fd, __unused unsigned int event
 		tcp->conn.stream.r.buffer_len = 256;
 		tcp->conn.stream.notify_read = ohp_handle_tcp_data;
 		tcp->conn.stream.notify_state = ohp_handle_tcp_done;
+		tcp->conn.stream.notify_write = ohp_handle_tcp_write;
 		ustream_fd_init(&tcp->conn, clientfd);
 
 		// Timeout reading from TCP after 3s
