@@ -78,12 +78,12 @@ static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_
 		return false;
 
 	char domain[kDNSServiceMaxDomainName];
-	int complen = ll2escaped(buf, len, domain, sizeof(domain));
+	int complen = ll2escaped(question, eom - question, domain, sizeof(domain));
 	const uint8_t *opt = &question[complen + 4]; // Point to next RR (should be OPT or EOM)
 	if (complen <= 0 || opt > eom)
 		return false;
 
-	req->dnsid = hdr[0];
+	req->dnsid = be16_to_cpu(hdr[0]);
 	d2m_req_add_query(req, domain, question[complen] << 8 | question[complen + 1]);
 	req->udp = udp;
 	req->maxlen = (udp) ? 512 : 65535;
@@ -106,6 +106,7 @@ static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_
 
 		// TODO: Parse LLQ options?
 	}
+	d2m_req_start(req);
 	return true;
 }
 
