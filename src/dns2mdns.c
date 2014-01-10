@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Fri Jan 10 10:04:14 2014 mstenber
- * Edit time:     228 min
+ * Last modified: Fri Jan 10 10:22:51 2014 mstenber
+ * Edit time:     233 min
  *
  */
 
@@ -39,7 +39,7 @@ static struct list_head interfaces = LIST_HEAD_INIT(interfaces);
 static DNSServiceRef conn = NULL;
 
 static void _query_start(struct ohp_query *q);
-static void _query_stop(struct ohp_query *q);
+static int _query_stop(struct ohp_query *q);
 static void _req_send(ohp_request req);
 
 static void
@@ -345,7 +345,7 @@ static void _req_send(ohp_request req)
   ohp_send_reply(req);
 }
 
-static void _query_stop(ohp_query q)
+static int _query_stop(ohp_query q)
 {
   if (q->service)
     {
@@ -354,8 +354,10 @@ static void _query_stop(ohp_query q)
       if (!(--(q->request->running)))
         {
           _req_send(q->request);
+          return -1;
         }
     }
+  return 0;
 }
 
 static void _request_timeout(struct uloop_timeout *t)
@@ -372,12 +374,17 @@ void d2m_req_start(ohp_request req)
   ohp_query q;
 
   L_DEBUG("d2m_req_start %p", req);
+
+  /* In case of instant failure, we don't want query-start triggered
+   * code to have incomplete request structure -> we set things
+   * here. */
+  uloop_timeout_set(&req->timeout, MAXIMUM_REQUEST_DURATION_IN_MS);
+  req->timeout.cb = _request_timeout;
+
   list_for_each_entry(q, &req->queries, head)
     {
       _query_start(q);
     }
-  req->timeout.cb = _request_timeout;
-  uloop_timeout_set(&req->timeout, MAXIMUM_REQUEST_DURATION_IN_MS);
 }
 
 void d2m_req_stop(ohp_request req)
@@ -391,7 +398,8 @@ void d2m_req_stop(ohp_request req)
 
   /* Stop the sub-queries. */
   list_for_each_entry(q, &req->queries, head)
-    _query_stop(q);
+    if (_query_stop(q))
+      return;
 }
 
 int d2m_add_interface(const char *ifname, const char *domain)
@@ -488,8 +496,10 @@ void d2m_req_free(ohp_request req)
 {
   /* Free shouldn't trigger send. */
   req->sent = true;
+
   /* Stop sub-queries. */
   d2m_req_stop(req);
+
   /* Free contents. */
   while (!list_empty(&req->queries))
     _query_free(list_first_entry(&req->queries, struct ohp_query, head));
