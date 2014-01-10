@@ -66,6 +66,7 @@ typedef struct ohp_request {
   uint16_t dnsid;
   size_t maxlen;
   bool udp;
+  bool active;
 
   /* List of sub-queries. The first query is the 'main' one, and the
    * rest 'additional records' ones. */

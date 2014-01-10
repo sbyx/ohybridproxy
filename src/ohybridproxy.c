@@ -107,6 +107,7 @@ static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_
 		// TODO: Parse LLQ options?
 	}
 	d2m_req_start(req);
+	req->active = true;
 	return true;
 }
 
@@ -189,7 +190,8 @@ static void ohp_handle_tcp_done(struct ustream *s)
 	struct ohp_request_tcp *tcp = container_of(s, struct ohp_request_tcp, conn);
 	ustream_free(s);
 	close(tcp->conn.fd.fd);
-	d2m_req_free(&tcp->req);
+	if (tcp->req.active)
+		d2m_req_free(&tcp->req);
 	free(tcp);
 }
 
