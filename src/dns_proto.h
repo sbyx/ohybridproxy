@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 14:41:31 2014 mstenber
- * Last modified: Fri Jan 10 10:06:27 2014 mstenber
- * Edit time:     10 min
+ * Last modified: Fri Jan 10 16:55:39 2014 mstenber
+ * Edit time:     12 min
  *
  */
 
@@ -55,5 +55,11 @@ typedef struct __packed dns_rr {
   uint16_t rdlen;
   uint8_t rdata[];
 } *dns_rr;
+
+typedef struct __packed dns_rdata_srv {
+  uint16_t priority;
+  uint16_t weight;
+  uint16_t port;
+} *dns_rdata_srv;
 
 #endif /* DNS_PROTO_H */

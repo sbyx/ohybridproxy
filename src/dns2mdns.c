@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Fri Jan 10 10:38:29 2014 mstenber
- * Edit time:     240 min
+ * Last modified: Fri Jan 10 16:58:07 2014 mstenber
+ * Edit time:     253 min
  *
  */
 
@@ -228,9 +228,10 @@ _service_callback(DNSServiceRef service __unused,
     case kDNSServiceType_SRV:
       {
         char buf[kDNSServiceMaxDomainName];
-        /* SRV record has 6 byte header + then name we're interested in. */
         /* The relevant name is the only content of ptr. */
-        if (ll2escaped(rdata + 6, rdlen - 6, buf, sizeof(buf))<0)
+        int srv_header_size = sizeof(struct dns_rdata_srv);
+        if (ll2escaped(rdata + srv_header_size, rdlen - srv_header_size,
+                       buf, sizeof(buf))<0)
           {
             L_ERR("error decoding ptr record");
             return;
@@ -560,19 +561,53 @@ do {                                            \
     memcpy(dst, _buf, _r);                      \
  } while(0)
 
-static int _push_rr(ohp_rr rr,
+static int _push_rr(ohp_query q,
+                    ohp_rr rr,
                     uint8_t *buf, int buf_len,
                     bool real)
 {
-  /* By default: We just push the data as is. */
+  uint8_t *obuf = buf;
   uint8_t *b;
-  int len = rr->drr.rdlen;
+  uint8_t *sbuf = rr->drr.rdata;
+  int slen = rr->drr.rdlen;
 
-  PUSH_RAW(b, len);
-  if (real)
-    memcpy(b, rr->drr.rdata, len);
+  switch (rr->drr.rrtype)
+    {
+    case kDNSServiceType_SRV:
+      /* From our point of view, SRV is just PTR with funny 8 byte
+       * header at start. */
+      {
+        dns_rdata_srv srv;
+        PUSH(srv);
+        if (real)
+          memcpy(srv, sbuf, sizeof(*srv));
+        sbuf += sizeof(*srv);
+        slen -= sizeof(*srv);
+      }
+      /* Intentional fall-through to label handling in PTR. */
+    case kDNSServiceType_PTR:
+      {
+        char buf[kDNSServiceMaxDomainName];
+
+        /* The relevant name is the only content of ptr. */
+        if (ll2escaped(sbuf, slen, buf, sizeof(buf))<0)
+          {
+            L_ERR("error decoding ptr(/srv) record");
+            return -1;
+          }
+        const char *qb = TO_DNS(q->request->interface, buf);
+        PUSH_EXPANDED(qb);
+      }
+      break;
+      /* By default: We just push the data as is. */
+    default:
+      PUSH_RAW(b, slen);
+      if (real)
+        memcpy(b, sbuf, slen);
+      break;
+    }
   /* XXX - rewrite PTR, SRV (and perhaps also TXT). */
-  return len;
+  return buf - obuf;
 }
 
 static int _produce_reply(ohp_request req,
@@ -615,7 +650,7 @@ static int _produce_reply(ohp_request req,
         {
           PUSH_EXPANDED(rr->name);
           PUSH(dr);
-          r = _push_rr(rr, buf, buf_len, real);
+          r = _push_rr(q, rr, buf, buf_len, real);
           if (r < 0)
             return r;
           buf += r;
