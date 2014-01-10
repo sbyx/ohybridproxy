@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Fri Jan 10 16:58:07 2014 mstenber
- * Edit time:     253 min
+ * Last modified: Fri Jan 10 17:02:22 2014 mstenber
+ * Edit time:     257 min
  *
  */
 
@@ -587,15 +587,15 @@ static int _push_rr(ohp_query q,
       /* Intentional fall-through to label handling in PTR. */
     case kDNSServiceType_PTR:
       {
-        char buf[kDNSServiceMaxDomainName];
+        char dbuf[kDNSServiceMaxDomainName];
 
         /* The relevant name is the only content of ptr. */
-        if (ll2escaped(sbuf, slen, buf, sizeof(buf))<0)
+        if (ll2escaped(sbuf, slen, dbuf, sizeof(dbuf))<0)
           {
             L_ERR("error decoding ptr(/srv) record");
             return -1;
           }
-        const char *qb = TO_DNS(q->request->interface, buf);
+        const char *qb = TO_DNS(q->request->interface, dbuf);
         PUSH_EXPANDED(qb);
       }
       break;
