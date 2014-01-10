@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Fri Jan 10 10:22:51 2014 mstenber
- * Edit time:     233 min
+ * Last modified: Fri Jan 10 10:38:29 2014 mstenber
+ * Edit time:     240 min
  *
  */
 
@@ -38,7 +38,7 @@ typedef struct d2m_interface_struct {
 static struct list_head interfaces = LIST_HEAD_INIT(interfaces);
 static DNSServiceRef conn = NULL;
 
-static void _query_start(struct ohp_query *q);
+static int _query_start(struct ohp_query *q);
 static int _query_stop(struct ohp_query *q);
 static void _req_send(ohp_request req);
 
@@ -274,7 +274,7 @@ _service_callback(DNSServiceRef service __unused,
     _query_stop(q);
 }
 
-static void _query_start(ohp_query q)
+static int _query_start(ohp_query q)
 {
   int flags = kDNSServiceFlagsShareConnection;
   int ifindex;
@@ -310,8 +310,11 @@ static void _query_start(ohp_query q)
             {
               L_INFO("impossible to serve query:%s", q->query);
               if (!q->request->running)
-                _req_send(q->request);
-              return;
+                {
+                  _req_send(q->request);
+                  return 1;
+                }
+              return 0;
             }
 
           q->request->interface = ifo;
@@ -334,6 +337,7 @@ static void _query_start(ohp_query q)
       abort();
     }
   q->request->running++;
+  return 0;
 }
 
 static void _req_send(ohp_request req)
@@ -383,7 +387,8 @@ void d2m_req_start(ohp_request req)
 
   list_for_each_entry(q, &req->queries, head)
     {
-      _query_start(q);
+      if (_query_start(q))
+        return;
     }
 }
 
@@ -631,7 +636,8 @@ static int _produce_reply(ohp_request req,
   if (real)
     {
       msg->id = req->dnsid;
-      msg->h = DNS_H_QR | DNS_H_AA;
+      msg->h = DNS_H_QR | DNS_H_AA |
+        (msg->ancount ? 0 : DNS_H_RCODE(DNS_RCODE_NXDOMAIN);
       /* XXX - should we copy RD from original message like Lua code does?
        * why does it do that? hmm. */
     }
@@ -657,7 +663,7 @@ int d2m_produce_reply(ohp_request req, uint8_t *buf, int buf_len)
   if (l >= 0)
     return _produce_reply(req, buf, buf_len, false, true);
 
-  /* 3) (XXX) */
+  /* 3) */
   uint8_t *obuf = buf;
   dns_msg msg;
   bool real = true;
