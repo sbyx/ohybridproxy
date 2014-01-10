@@ -519,6 +519,82 @@ void d2m_req_free(ohp_request req)
     _query_free(list_first_entry(&req->queries, struct ohp_query, head));
 }
 
+static void _init_deduplicate(uint8_t *saved[], size_t saved_max, void *msghdr)
+{
+	memset(saved, 0, sizeof(*saved) * saved_max);
+	if (saved_max > 0)
+		saved[0] = msghdr;
+}
+
+static int _push_deduplicate(uint8_t *lbldata, int lbllen, uint8_t *target,
+		uint8_t *saved[], size_t saved_max)
+{
+	uint8_t *eoc = &lbldata[lbllen-1];
+	uint8_t **eos = &saved[saved_max];
+
+	if (saved_max < 1 || lbllen < 2 || *eoc != 0)
+		return lbllen;
+
+	bool matching = true;
+	size_t rewrite_offset = 0;
+	uint8_t *rewrite_c = NULL;
+	do {
+		uint8_t *eol = &lbldata[lbllen];
+		uint8_t *c = lbldata;
+		for (;;) {
+			if ((*c & 0xc0) || *c == 0 || &c[*c + 1] > eoc)
+				return lbllen;
+
+			if (&c[*c + 1] == eoc)
+				break;
+
+			c = &c[*c + 1];
+		}
+
+
+
+		uint8_t **s;
+		for (s = &saved[1]; s < eos && *s; ++s) {
+			size_t savelen = eol - c, j;
+			for (j = 0; matching && j < savelen && (*s)[j] == c[j]; ++j);
+
+			if (j == savelen) { // Match found
+				size_t offset = *s - saved[0];
+				if (offset <= 0x3fff) {
+					rewrite_c = c;
+					rewrite_offset = offset;
+				}
+				break;
+			}
+		}
+
+		if (rewrite_c && (s >= eos || *s == NULL)) {
+			rewrite_c[0] = 0xc0 | rewrite_offset >> 8;
+			rewrite_c[1] = rewrite_offset & 0xff;
+			lbllen = &rewrite_c[2] - lbldata;
+
+			rewrite_c = NULL;
+			continue;
+		}
+
+		if (s < eos && *s == NULL) {
+			// otherwise save new label location if we still have space
+			*s = &target[c - lbldata];
+			matching = false;
+		}
+
+		eoc = c;
+	} while (eoc != lbldata);
+
+	if (rewrite_c) {
+		rewrite_c[0] = 0xc0 | rewrite_offset >> 8;
+		rewrite_c[1] = rewrite_offset & 0xff;
+		lbllen = &rewrite_c[2] - lbldata;
+	}
+
+	return lbllen;
+}
+
 #define PUSH_RAW(s, len)                                        \
 do {                                                            \
   buf_len -= len;                                               \
@@ -548,10 +624,12 @@ do {                            \
     }                           \
 } while(0)
 
-#define PUSH_EXPANDED(e)                        \
+#define PUSH_EXPANDED(e, saved, saved_max)      \
 do {                                            \
   uint8_t _buf[256];                            \
   int _r = escaped2ll(e, _buf, sizeof(_buf));   \
+  if (real)                                     \
+    _r = _push_deduplicate(_buf, _r, buf, saved, saved_max); \
   uint8_t *dst;                                 \
   if (_r <=0 ) {                                \
     return -1;                                  \
@@ -564,7 +642,7 @@ do {                                            \
 static int _push_rr(ohp_query q,
                     ohp_rr rr,
                     uint8_t *buf, int buf_len,
-                    bool real)
+                    bool real, uint8_t *saved[], size_t saved_max)
 {
   uint8_t *obuf = buf;
   uint8_t *b;
@@ -596,7 +674,7 @@ static int _push_rr(ohp_query q,
             return -1;
           }
         const char *qb = TO_DNS(q->request->interface, dbuf);
-        PUSH_EXPANDED(qb);
+        PUSH_EXPANDED(qb, saved, saved_max);
       }
       break;
       /* By default: We just push the data as is. */
@@ -623,6 +701,10 @@ static int _produce_reply(ohp_request req,
   dns_query dq;
   dns_rr dr;
   int r;
+  const size_t saved_max = 128;
+  uint8_t *saved[saved_max];
+
+  _init_deduplicate(saved, saved_max, buf);
 
   /* XXX - should probably rewrite this to use name compression at
    * some point. for the time being, just using dns_util's raw
@@ -637,7 +719,7 @@ static int _produce_reply(ohp_request req,
       if (first)
         {
           /* Push the query first. */
-          PUSH_EXPANDED(q->query);
+          PUSH_EXPANDED(q->query, saved, saved_max);
           PUSH(dq);
           if (real)
             {
@@ -648,9 +730,9 @@ static int _produce_reply(ohp_request req,
         }
       list_for_each_entry(rr, &q->rrs, head)
         {
-          PUSH_EXPANDED(rr->name);
+          PUSH_EXPANDED(rr->name, saved, saved_max);
           PUSH(dr);
-          r = _push_rr(q, rr, buf, buf_len, real);
+          r = _push_rr(q, rr, buf, buf_len, real, saved, saved_max);
           if (r < 0)
             return r;
           buf += r;
