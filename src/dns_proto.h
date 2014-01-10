@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 14:41:31 2014 mstenber
- * Last modified: Thu Jan  9 22:45:25 2014 mstenber
- * Edit time:     15 min
+ * Last modified: Fri Jan 10 10:06:27 2014 mstenber
+ * Edit time:     10 min
  *
  */
 
@@ -26,14 +26,14 @@ typedef struct __packed dns_msg {
   uint16_t arcount; /* dns_rr's */
 } *dns_msg;
 
-#define DNS_H_QR (1 << 8)
-#define DNS_H_OPCODE(x) (((x) & 0xF) << 9)
-#define DNS_H_AA (1 << 13)
-#define DNS_H_TC (1 << 14)
-#define DNS_H_RD (1 << 15)
-#define DNS_H_RA 1
-#define DNS_H_Z(x) (((x) & 0x7) << 1)
-#define DNS_H_RCODE(x) (((x) & 0xF) << 4)
+#define DNS_H_QR (1 << 15)
+#define DNS_H_OPCODE(x) (((x) & 0xF) << 11)
+#define DNS_H_AA (1 << 10)
+#define DNS_H_TC (1 << 9)
+#define DNS_H_RD (1 << 8)
+#define DNS_H_RA (1 << 7)
+#define DNS_H_Z(x) (((x) & 0x7) << 4)
+#define DNS_H_RCODE(x) ((x) & 0xF))
 
 /* name does not exist (meaningful only from authoritative) */
 #define DNS_RCODE_NXDOMAIN 3
