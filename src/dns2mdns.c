@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Thu Jan  9 22:47:21 2014 mstenber
- * Edit time:     229 min
+ * Last modified: Fri Jan 10 10:04:14 2014 mstenber
+ * Edit time:     228 min
  *
  */
 
@@ -265,6 +265,7 @@ _service_callback(DNSServiceRef service __unused,
       return;
     }
   rr->drr.rrtype = rrtype;
+  rr->drr.rrclass = rrclass;
   rr->drr.rdlen = rdlen;
   rr->drr.ttl = ttl;
   memcpy(rr->drr.rdata, rdata, rdlen);
