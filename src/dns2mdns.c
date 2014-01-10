@@ -154,6 +154,7 @@ _service_callback(DNSServiceRef service __unused,
   ohp_query nq;
   ohp_rr rr;
   bool probably_cf = false;
+  const uint8_t *rbytes = rdata;
 
   if (error != kDNSServiceErr_NoError)
     {
@@ -245,7 +246,14 @@ _service_callback(DNSServiceRef service __unused,
       probably_cf = true;
       break;
     case kDNSServiceType_A:
+      if (rdlen != 4 || (rbytes[0] == 169 && rbytes[1] == 254))
+          return;
+      probably_cf = true;
+      break;
+
     case kDNSServiceType_AAAA:
+      if (rdlen != 16 || (rbytes[0] == 0xfe && (rbytes[1] & 0xc0) == 0x80))
+          return;
       probably_cf = true;
       break;
     }
