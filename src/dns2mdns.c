@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Thu Jan  9 22:01:03 2014 mstenber
- * Edit time:     224 min
+ * Last modified: Thu Jan  9 22:47:21 2014 mstenber
+ * Edit time:     229 min
  *
  */
 
@@ -617,6 +617,13 @@ static int _produce_reply(ohp_request req,
       L_ERR("no query in d2m_produce_reply");
       return -1;
     }
+  if (real)
+    {
+      msg->id = req->dnsid;
+      msg->h = DNS_H_QR | DNS_H_AA;
+      /* XXX - should we copy RD from original message like Lua code does?
+       * why does it do that? hmm. */
+    }
   TO_BE16(msg);
   return buf - obuf;
 }
@@ -640,5 +647,15 @@ int d2m_produce_reply(ohp_request req, uint8_t *buf, int buf_len)
     return _produce_reply(req, buf, buf_len, false, true);
 
   /* 3) (XXX) */
-  return -1;
+  uint8_t *obuf = buf;
+  dns_msg msg;
+  bool real = true;
+
+  PUSH(msg);
+  msg->id = req->dnsid;
+  msg->h = DNS_H_QR | DNS_H_TC | DNS_H_AA;
+  /* XXX - should we copy RD from original message like Lua code does?
+   * why does it do that? hmm. */
+  TO_BE16(msg);
+  return buf - obuf;
 }
