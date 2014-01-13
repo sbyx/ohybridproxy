@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Fri Jan 10 17:04:48 2014 mstenber
- * Edit time:     259 min
+ * Last modified: Mon Jan 13 15:16:11 2014 mstenber
+ * Edit time:     322 min
  *
  */
 
@@ -137,6 +137,27 @@ _rewrite_domain(const char *src, char *buf, int buf_len,
                        )                                                \
  : NULL)
 
+static ohp_rr
+_query_add_rr(ohp_query q, const char *name, dns_rr drr, const void *rdata)
+{
+  const char *rrname = TO_DNS(q->request->interface, name);
+
+  if (!rrname)
+    return NULL;
+  ohp_rr rr = calloc(1, sizeof(*rr) + drr->rdlen);
+  if (!rr)
+    return NULL;
+  if (!(rr->name = strdup(rrname)))
+    {
+      free(rr);
+      return NULL;
+    }
+  rr->drr = *drr;
+  memcpy(rr->drr.rdata, rdata, drr->rdlen);
+  list_add(&rr->head, &q->rrs);
+  return rr;
+}
+
 static void
 _service_callback(DNSServiceRef service __unused,
                   DNSServiceFlags flags,
@@ -148,11 +169,10 @@ _service_callback(DNSServiceRef service __unused,
                   uint16_t rdlen,
                   const void *rdata,
                   uint32_t ttl,
-             void *context)
+                  void *context)
 {
   ohp_query q = context;
   ohp_query nq;
-  ohp_rr rr;
   bool probably_cf = false;
   const uint8_t *rbytes = rdata;
 
@@ -239,9 +259,9 @@ _service_callback(DNSServiceRef service __unused,
         const char *qb = TO_DNS(q->request->interface, buf);
         if (!qb)
             return;
-        if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_A)))
-          _query_start(nq);
         if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_AAAA)))
+          _query_start(nq);
+        if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_A)))
           _query_start(nq);
       }
       probably_cf = true;
@@ -262,24 +282,13 @@ _service_callback(DNSServiceRef service __unused,
     ttl = MAXIMUM_MDNS_TO_DNS_TTL;
   L_DEBUG("adding rr %s/%d (%d bytes, %d ttl)",
           q->query, rrtype, rdlen, ttl);
-  rr = calloc(1, sizeof(*rr) + rdlen);
-  if (!rr)
-    return;
-  const char *rrname = TO_DNS(q->request->interface, name);
-  if (rrname)
-	  rr->name = strdup(rrname);
-  if (!rr->name)
-    {
-      free(rr);
-      return;
-    }
-  rr->drr.rrtype = rrtype;
-  rr->drr.rrclass = rrclass;
-  rr->drr.rdlen = rdlen;
-  rr->drr.ttl = ttl;
-  memcpy(rr->drr.rdata, rdata, rdlen);
-  list_add(&rr->head, &q->rrs);
-  if (probably_cf)
+  struct dns_rr drr;
+  drr.rrtype = rrtype;
+  drr.rrclass = rrclass;
+  drr.rdlen = rdlen;
+  drr.ttl = ttl;
+  /* If add succeeds, and is probably cf, we can perhaps stop the query. */
+  if (_query_add_rr(q, name, &drr, rdata) && probably_cf)
     _query_stop(q);
 }
 
@@ -416,18 +425,14 @@ void d2m_req_stop(ohp_request req)
       return;
 }
 
-int d2m_add_interface(const char *ifname, const char *domain)
+static int _add_interface(const char *ifname, uint32_t ifindex,
+                          const char *domain)
 {
   d2m_interface ifo;
     /* Normalize the domain by encoding it to ll and back. */
   uint8_t buf[kDNSServiceMaxDomainName];
   int r;
-  uint32_t ifindex = if_nametoindex(ifname);
 
-  if (!ifindex)
-    {
-      return -1;
-    }
   ifo = calloc(1, sizeof(*ifo));
   if (!ifo)
     {
@@ -453,6 +458,18 @@ int d2m_add_interface(const char *ifname, const char *domain)
   list_add(&ifo->head, &interfaces);
   L_DEBUG("d2m_add_interface if:%s/%d domain:%s (from %s)", ifname, ifo->ifindex, ifo->domain, domain);
   return 0;
+}
+
+int d2m_add_interface(const char *ifname, const char *domain)
+{
+  uint32_t ifindex = if_nametoindex(ifname);
+
+  if (!ifindex)
+    {
+      L_ERR("invalid interface:%s", ifname);
+      return -1;
+    }
+  return _add_interface(ifname, ifindex, domain);
 }
 
 
@@ -599,9 +616,9 @@ static int _push_deduplicate(uint8_t *lbldata, int lbllen, uint8_t *target,
 do {                                                            \
   buf_len -= len;                                               \
   if (buf_len < 0) {                                            \
-    L_DEBUG("unable to push %d byte structure (just %d left)",  \
-            (int)len, buf_len);                                 \
-    return -1;                                                  \
+    L_DEBUG("unable to push %d byte structure (missing %d)",    \
+            (int)len, -buf_len);                                \
+    goto oob;                                                   \
   }                                                             \
   s = (void *)buf;                                              \
   buf += len;                                                   \
@@ -611,43 +628,38 @@ do {                                                            \
 
 #define TO_BE16(s)              \
 do {                            \
-  if (real)                     \
-    {                           \
-      uint16_t *i = (void *)s;  \
-      void *e = i;              \
-      e += sizeof(*s);          \
-      while (i != e)            \
-        {                       \
-          *i = cpu_to_be16(*i); \
-          i++;                  \
-        }                       \
+  uint16_t *i = (void *)s;      \
+  void *e = i;                  \
+  e += sizeof(*s);              \
+  while (i != e) {              \
+      *i = cpu_to_be16(*i);     \
+      i++;                      \
     }                           \
 } while(0)
 
-#define PUSH_EXPANDED(e, saved, saved_max)      \
-do {                                            \
-  uint8_t _buf[256];                            \
-  int _r = escaped2ll(e, _buf, sizeof(_buf));   \
-  if (real)                                     \
-    _r = _push_deduplicate(_buf, _r, buf, saved, saved_max); \
-  uint8_t *dst;                                 \
-  if (_r <=0 ) {                                \
-    return -1;                                  \
-  }                                             \
-  PUSH_RAW(dst, _r);                            \
-  if (real)                                     \
-    memcpy(dst, _buf, _r);                      \
+#define PUSH_EXPANDED(e, saved, saved_max)                      \
+do {                                                            \
+  uint8_t _buf[256];                                            \
+  int _r = escaped2ll(e, _buf, sizeof(_buf));                   \
+  _r = _push_deduplicate(_buf, _r, buf, saved, saved_max);      \
+  uint8_t *dst;                                                 \
+  if (_r <=0 ) {                                                \
+    goto oob;                                                   \
+  }                                                             \
+  PUSH_RAW(dst, _r);                                            \
+  memcpy(dst, _buf, _r);                                        \
  } while(0)
 
-static int _push_rr(ohp_query q,
-                    ohp_rr rr,
-                    uint8_t *buf, int buf_len,
-                    bool real, uint8_t *saved[], size_t saved_max)
+static int _produce_reply_push_rr(ohp_query q,
+                                  ohp_rr rr,
+                                  uint8_t *buf, int buf_len,
+                                  uint8_t *saved[], size_t saved_max)
 {
   uint8_t *obuf = buf;
   uint8_t *b;
   uint8_t *sbuf = rr->drr.rdata;
   int slen = rr->drr.rdlen;
+  int r;
 
   switch (rr->drr.rrtype)
     {
@@ -657,8 +669,7 @@ static int _push_rr(ohp_query q,
       {
         dns_rdata_srv srv;
         PUSH(srv);
-        if (real)
-          memcpy(srv, sbuf, sizeof(*srv));
+        memcpy(srv, sbuf, sizeof(*srv));
         sbuf += sizeof(*srv);
         slen -= sizeof(*srv);
       }
@@ -668,10 +679,10 @@ static int _push_rr(ohp_query q,
         char dbuf[kDNSServiceMaxDomainName];
 
         /* The relevant name is the only content of ptr. */
-        if (ll2escaped(sbuf, slen, dbuf, sizeof(dbuf))<0)
+        if ((r = ll2escaped(sbuf, slen, dbuf, sizeof(dbuf)))<0)
           {
             L_ERR("error decoding ptr(/srv) record");
-            return -1;
+            return r;
           }
         const char *qb = TO_DNS(q->request->interface, dbuf);
         PUSH_EXPANDED(qb, saved, saved_max);
@@ -680,126 +691,107 @@ static int _push_rr(ohp_query q,
       /* By default: We just push the data as is. */
     default:
       PUSH_RAW(b, slen);
-      if (real)
-        memcpy(b, sbuf, slen);
+      memcpy(b, sbuf, slen);
       break;
     }
   /* XXX - rewrite PTR, SRV (and perhaps also TXT). */
   return buf - obuf;
+ oob:
+  return DNS_RESULT_OOB;
 }
 
-static int _produce_reply(ohp_request req,
-                          uint8_t *buf, int buf_len,
-                          bool include_additional,
-                          bool real)
+int d2m_produce_reply(ohp_request req,
+                      uint8_t *buf, int buf_len)
 {
   uint8_t *obuf = buf;
   ohp_query q;
   ohp_rr rr;
   bool first = true;
-  dns_msg msg;
+  dns_msg msg = NULL;
   dns_query dq;
   dns_rr dr;
-  int r;
+  int r, fallback_result = DNS_RESULT_OOB;
   const size_t saved_max = 128;
   uint8_t *saved[saved_max];
 
   _init_deduplicate(saved, saved_max, buf);
-
-  /* XXX - should probably rewrite this to use name compression at
-   * some point. for the time being, just using dns_util's raw
-   * functions. */
   PUSH(msg);
-  if (real)
-    {
-      memset(msg, 0, sizeof(*msg));
-    }
+  memset(msg, 0, sizeof(*msg));
+  msg->h = DNS_H_QR | DNS_H_AA;
+  msg->id = req->dnsid;
+  /* XXX - should we copy RD from original message like Lua code does?
+   * why does it do that? hmm. */
   list_for_each_entry(q, &req->queries, head)
     {
+      L_DEBUG(" producing reply for %s/%d", q->query, q->dq.qtype);
       if (first)
         {
           /* Push the query first. */
           PUSH_EXPANDED(q->query, saved, saved_max);
           PUSH(dq);
-          if (real)
-            {
-              msg->qdcount = 1;
-              *dq = q->dq;
-              TO_BE16(dq);
-            }
+          msg->qdcount = 1;
+          *dq = q->dq;
+          TO_BE16(dq);
+          fallback_result = buf - obuf;
+          L_DEBUG(" fallback 1:%d", fallback_result);
+          /* This is the shortest valid reply; message header + query. */
         }
       list_for_each_entry(rr, &q->rrs, head)
         {
           PUSH_EXPANDED(rr->name, saved, saved_max);
           PUSH(dr);
-          r = _push_rr(q, rr, buf, buf_len, real, saved, saved_max);
+          r = _produce_reply_push_rr(q, rr, buf, buf_len, saved, saved_max);
+          if (r == DNS_RESULT_OOB)
+            goto oob;
           if (r < 0)
             return r;
           buf += r;
           buf_len -= r;
-          if (real)
+          *dr = rr->drr;
+          if (first)
+            msg->ancount++;
+          else
+            msg->arcount++;
+          dr->rdlen = r; /* rewrite may have changed length */
+          TO_BE16(dr);
+          /* TO_BE16 won't cover BE32 -> convert TTL separately here. */
+          dr->ttl = cpu_to_be32(rr->drr.ttl);
+        }
+      if (first)
+        {
+          /* This is second shortish valid reply; answers, but no
+           * additional records. */
+          fallback_result = buf - obuf;
+          L_DEBUG(" fallback 2:%d", fallback_result);
+          first = false;
+          if (!msg->ancount)
             {
-              *dr = rr->drr;
-              if (first)
-                msg->ancount++;
-              else
-                msg->arcount++;
-              dr->rdlen = r; /* rewrite may have changed length */
-              TO_BE16(dr);
-              /* TO_BE16 won't cover BE32 -> convert TTL separately here. */
-              dr->ttl = cpu_to_be32(rr->drr.ttl);
+              msg->h |= DNS_H_RCODE(DNS_RCODE_NXDOMAIN);
+              break;
             }
         }
-
-      first = false;
-      if (!include_additional)
-        break;
     }
   if (first)
     {
       L_ERR("no query in d2m_produce_reply");
-      return -1;
+      return DNS_RESULT_ERROR;
     }
-  if (real)
+  TO_BE16(msg);
+  return buf - obuf;
+ oob:
+  L_DEBUG("oob handler with %d result", fallback_result);
+  if (msg)
     {
-      msg->id = req->dnsid;
-      msg->h = DNS_H_QR | DNS_H_AA |
-        (msg->ancount ? 0 : DNS_H_RCODE(DNS_RCODE_NXDOMAIN);
-      /* XXX - should we copy RD from original message like Lua code does?
-       * why does it do that? hmm. */
+      /* Clearly no additional records didn't fit in. */
+      msg->arcount = 0;
+
+      /* If all answers didn't fit in either, clear ancount + return TC. */
+      if (first)
+        {
+          msg->ancount = 0;
+          msg->h |= DNS_H_TC;
+        }
+      TO_BE16(msg);
     }
-  TO_BE16(msg);
-  return buf - obuf;
-}
-
-int d2m_produce_reply(ohp_request req, uint8_t *buf, int buf_len)
-{
-  /* There's 3 different types of responses. */
-  /* 1) everything */
-  /* 2) answer-only */
-  /* 3) 'sorry, can't be arsed (partial answer) */
-  int l;
-
-  /* 1) */
-  l = _produce_reply(req, NULL, buf_len, true, false);
-  if (l >= 0)
-    return _produce_reply(req, buf, buf_len, true, true);
-
-  /* 2) */
-  l = _produce_reply(req, NULL, buf_len, false, false);
-  if (l >= 0)
-    return _produce_reply(req, buf, buf_len, false, true);
-
-  /* 3) */
-  uint8_t *obuf = buf;
-  dns_msg msg;
-  bool real = true;
-
-  PUSH(msg);
-  msg->id = req->dnsid;
-  msg->h = DNS_H_QR | DNS_H_TC | DNS_H_AA;
-  /* XXX - should we copy RD from original message like Lua code does?
-   * why does it do that? hmm. */
-  TO_BE16(msg);
-  return buf - obuf;
+  return fallback_result;
 }

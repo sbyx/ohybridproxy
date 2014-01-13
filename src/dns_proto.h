@@ -6,7 +6,7 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 14:41:31 2014 mstenber
- * Last modified: Fri Jan 10 16:55:39 2014 mstenber
+ * Last modified: Mon Jan 13 12:36:35 2014 mstenber
  * Edit time:     12 min
  *
  */
@@ -33,7 +33,7 @@ typedef struct __packed dns_msg {
 #define DNS_H_RD (1 << 8)
 #define DNS_H_RA (1 << 7)
 #define DNS_H_Z(x) (((x) & 0x7) << 4)
-#define DNS_H_RCODE(x) ((x) & 0xF))
+#define DNS_H_RCODE(x) ((x) & 0xF)
 
 /* name does not exist (meaningful only from authoritative) */
 #define DNS_RCODE_NXDOMAIN 3

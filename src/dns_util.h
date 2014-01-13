@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 11:41:22 2014 mstenber
- * Last modified: Thu Jan  9 10:35:12 2014 mstenber
- * Edit time:     49 min
+ * Last modified: Mon Jan 13 12:30:08 2014 mstenber
+ * Edit time:     52 min
  *
  */
 
@@ -22,6 +22,13 @@
 #include <stdio.h>
 
 #include "ohybridproxy.h"
+
+/* This error indicates that outbut buffer was too small. */
+#define DNS_RESULT_OOB -1
+
+/* This error indicates that something else went awry; typically,
+ * input is malformed in some way. */
+#define DNS_RESULT_ERROR -2
 
 /*
  * This header file defines functions for transforming label list to
@@ -47,7 +54,7 @@ do {                                                    \
     {                                                   \
       L_DEBUG("lacking %d/%d bytes (push label body)",  \
               -ll_left, l_len + 1);                     \
-      return -2;                                        \
+      return DNS_RESULT_OOB;                            \
     }                                                   \
   *(ll++) = l_len;                                      \
   if (l_len) {                                          \
@@ -77,7 +84,7 @@ int escaped2ll(const char *escaped, uint8_t *ll, int ll_left)
   if (ll_left <= 0)
     {
       L_DEBUG("no output string available");
-      return -4;
+      return DNS_RESULT_OOB;
     }
   buf[3] = 0;
   while ((c = *(escaped++)))
@@ -105,7 +112,7 @@ int escaped2ll(const char *escaped, uint8_t *ll, int ll_left)
                   if (!isdigit(c))
                     {
                       L_DEBUG("non-digit in location %d: %c", i, c);
-                      return -3;
+                      return DNS_RESULT_ERROR;
                     }
                   buf[i] = c;
                 }
@@ -119,7 +126,7 @@ int escaped2ll(const char *escaped, uint8_t *ll, int ll_left)
           if (l == le)
             {
               L_DEBUG("too long single label");
-              return -1;
+              return DNS_RESULT_ERROR;
             }
           *(l++) = c;
         }
@@ -143,7 +150,7 @@ do {                                                    \
   if (!escaped_left--)                                  \
     {                                                   \
       L_DEBUG("out of space in escaped pushing %d", c); \
-      return -1;                                        \
+      return DNS_RESULT_OOB;                            \
     }                                                   \
   *(escaped++) = c;                                     \
  } while(0)
@@ -163,14 +170,14 @@ int ll2escaped(const uint8_t *ll, int ll_left, char *escaped, int escaped_left)
   if (escaped_left <= 0)
     {
       L_DEBUG("no output string available");
-      return -4;
+      return DNS_RESULT_OOB;
     }
   while (1)
     {
       if (!ll_left--)
         {
           L_DEBUG("out of input string (before last null label)");
-          return -1;
+          return DNS_RESULT_ERROR;
         }
       uint8_t c = *(ll++);
 
@@ -181,7 +188,7 @@ int ll2escaped(const uint8_t *ll, int ll_left, char *escaped, int escaped_left)
           if (ll_left < 0)
             {
               L_DEBUG("%d/%d bytes of label body missing", -ll_left, c);
-              return -2;
+              return DNS_RESULT_ERROR;
             }
           for (i = 0 ; i < c ; i++)
             {
@@ -204,7 +211,7 @@ int ll2escaped(const uint8_t *ll, int ll_left, char *escaped, int escaped_left)
                     {
                       L_DEBUG("out of space in escaped: %d bytes",
                               -escaped_left);
-                      return -2;
+                      return DNS_RESULT_OOB;
                     }
                   memcpy(escaped, buf, 4);
                   escaped += 4;
