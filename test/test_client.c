@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 11:13:07 2014 mstenber
- * Last modified: Thu Jan  9 22:29:37 2014 mstenber
- * Edit time:     19 min
+ * Last modified: Mon Jan 13 19:56:41 2014 mstenber
+ * Edit time:     20 min
  *
  */
 
@@ -25,13 +25,8 @@ void ohp_send_reply(struct ohp_request *req __unused)
   unsigned char buf[65535];
   int r;
 
+  /* Too small payload tests are now in test_dns2mdns. */
   memset(buf, 42, sizeof(buf));
-  r = d2m_produce_reply(req, buf, 10);
-  assert(r < 0);
-  assert(buf[0] == 42);
-  r = d2m_produce_reply(req, buf, 12);
-  assert(r == 12);
-  assert(buf[r] == 42);
   r = d2m_produce_reply(req, buf, sizeof(buf));
   assert(r > 0);
   assert(buf[r] == 42);
