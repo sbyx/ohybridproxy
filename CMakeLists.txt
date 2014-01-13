@@ -40,6 +40,7 @@ add_dependencies(check test_dnsutil)
 add_executable(test_dns2mdns test/test_dns2mdns.c)
 add_test(dns2mdns test_dns2mdns)
 add_dependencies(check test_dns2mdns)
+target_link_libraries(test_dns2mdns ubox ${dns_sd})
 
 add_executable(test_mdnsresponder test/test_mdnsresponder.c)
 target_link_libraries(test_mdnsresponder ubox ${dns_sd})
