@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:30:07 2014 mstenber
- * Last modified: Mon Jan 13 15:23:24 2014 mstenber
- * Edit time:     56 min
+ * Last modified: Mon Jan 13 15:29:03 2014 mstenber
+ * Edit time:     57 min
  *
  */
 
@@ -236,6 +236,9 @@ void check_dns2mdns(void)
   smock_push_bool("ohpsr", true);
   d2m_req_stop(&req);
   smock_is_empty();
+
+  /* Free the structure. */
+  d2m_req_free(&req);
 
 #undef DNSServiceRefDeallocate
   DNSServiceRefDeallocate(_get_conn());
