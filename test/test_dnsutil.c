@@ -6,16 +6,16 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 13:01:23 2014 mstenber
- * Last modified: Thu Jan  9 10:33:43 2014 mstenber
+ * Last modified: Tue Jan 14 21:35:03 2014 mstenber
  * Edit time:     32 min
  *
  */
 
 #define L_LEVEL 7
 
+#include "ohybridproxy.h"
 #include "dns_util.h"
 #include "sput.h"
-#include "ohybridproxy.h"
 
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 

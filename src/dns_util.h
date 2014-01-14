@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 11:41:22 2014 mstenber
- * Last modified: Mon Jan 13 12:30:08 2014 mstenber
- * Edit time:     52 min
+ * Last modified: Tue Jan 14 21:33:25 2014 mstenber
+ * Edit time:     61 min
  *
  */
 
@@ -16,12 +16,21 @@
 
 #include <stdint.h>
 #include <ctype.h>
-#include <dns_sd.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "ohybridproxy.h"
+/* Single (binary) label max length. */
+#define DNS_MAX_L_LEN 64
+
+/* Maximum result size of *2ll */
+#define DNS_MAX_LL_LEN 256
+
+/* Maximum result size of *2escaped */
+#define DNS_MAX_ESCAPED_LEN 1009
+
+/* Single (escaped) label max length (approximation) */
+#define DNS_MAX_ESCAPED_L_LEN 256
 
 /* This error indicates that outbut buffer was too small. */
 #define DNS_RESULT_OOB -1
@@ -77,7 +86,7 @@ int escaped2ll(const char *escaped, uint8_t *ll, int ll_left)
   uint8_t *oll = ll;
   int last_size = -1;
   char c;
-  uint8_t label[kDNSServiceMaxServiceName], *l = label, *le = label + sizeof(label);
+  uint8_t label[DNS_MAX_ESCAPED_LEN], *l = label, *le = label + sizeof(label);
   char buf[4];
   int i;
 
@@ -156,6 +165,48 @@ do {                                                    \
  } while(0)
 
 /*
+ * Convert single label to escaped string. Note that l contains
+ * _body_, and l_left is assumed to have been picked from the label
+ * already.
+ */
+static inline
+int l2escaped(const uint8_t *l, int l_len, char *escaped, int escaped_left)
+{
+  char *oescaped = escaped;
+  int i;
+
+  for (i = 0 ; i < l_len ; i++)
+    {
+      uint8_t d = *(l++);
+      if (d == '\\' || d == '.')
+        {
+          PUSH_CHAR('\\');
+          PUSH_CHAR(d);
+        }
+      else if (isprint(d))
+        {
+          PUSH_CHAR(d);
+        }
+      else
+        {
+          char buf[5];
+          sprintf(buf, "\\%03d", d);
+          escaped_left -= 4;
+          if (escaped_left < 0)
+            {
+              L_DEBUG("out of space in escaped: %d bytes",
+                      -escaped_left);
+              return DNS_RESULT_OOB;
+            }
+          memcpy(escaped, buf, 4);
+          escaped += 4;
+        }
+    }
+  return escaped - oescaped;
+}
+
+
+/*
  * Convert label list to escaped string.
  *
  * Return the number of bytes consumed (escaped string will be null
@@ -165,7 +216,7 @@ static inline
 int ll2escaped(const uint8_t *ll, int ll_left, char *escaped, int escaped_left)
 {
   const uint8_t *oll = ll;
-  int i;
+  int r;
 
   if (escaped_left <= 0)
     {
@@ -190,33 +241,12 @@ int ll2escaped(const uint8_t *ll, int ll_left, char *escaped, int escaped_left)
               L_DEBUG("%d/%d bytes of label body missing", -ll_left, c);
               return DNS_RESULT_ERROR;
             }
-          for (i = 0 ; i < c ; i++)
-            {
-              uint8_t d = *(ll++);
-              if (d == '\\' || d == '.')
-                {
-                  PUSH_CHAR('\\');
-                  PUSH_CHAR(d);
-                }
-              else if (isprint(d))
-                {
-                  PUSH_CHAR(d);
-                }
-              else
-                {
-                  char buf[5];
-                  sprintf(buf, "\\%03d", d);
-                  escaped_left -= 4;
-                  if (escaped_left < 0)
-                    {
-                      L_DEBUG("out of space in escaped: %d bytes",
-                              -escaped_left);
-                      return DNS_RESULT_OOB;
-                    }
-                  memcpy(escaped, buf, 4);
-                  escaped += 4;
-                }
-            }
+          r = l2escaped(ll, c, escaped, escaped_left);
+          if (r < 0)
+            return r;
+          ll += c;
+          escaped += r;
+          escaped_left -= r;
         }
       if (!c)
         break;
