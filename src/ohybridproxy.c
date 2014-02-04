@@ -1,3 +1,14 @@
+/*
+ * $Id: ohybridproxy.c $
+ *
+ * Author: Steven Barth <steven@midlink.org>
+ * Author: Markus Stenberg <markus stenberg@iki.fi>
+ *
+ * Copyright (c) 2014 cisco Systems, Inc.
+ *
+ */
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
