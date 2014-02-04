@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:23:19 2014 mstenber
- * Last modified: Tue Feb  4 16:46:24 2014 mstenber
- * Edit time:     43 min
+ * Last modified: Tue Feb  4 17:00:07 2014 mstenber
+ * Edit time:     44 min
  *
  */
 
@@ -79,6 +79,9 @@ typedef struct ohp_request {
 
   /* Number of running queries. */
   int running;
+
+  /* Is it started at all? */
+  bool started;
 
   /* Have we sent a response already? (refactor this to be rr-specific
    * in LLQ case). */

@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Tue Feb  4 16:55:50 2014 mstenber
- * Edit time:     336 min
+ * Last modified: Tue Feb  4 17:04:19 2014 mstenber
+ * Edit time:     340 min
  *
  */
 
@@ -94,13 +94,15 @@ static DNSServiceRef _get_conn()
       if (error)
         {
           L_ERR("error %d in get_conn", error);
-          abort();
+          return NULL;
         }
       conn_fd.fd = DNSServiceRefSockFD(conn);
       if (uloop_fd_add(&conn_fd, ULOOP_READ) < 0)
         {
           L_ERR("Error in uloop_fd_add");
-          abort();
+          DNSServiceRefDeallocate(conn);
+          conn = NULL;
+          return NULL;
         }
       L_DEBUG("DNSServiceCreateConnection succeeded; now have connection");
     }
@@ -357,12 +359,7 @@ static int _query_start(ohp_query q)
           if (!ifo)
             {
               L_INFO("impossible to serve query:%s", q->query);
-              if (!q->request->running)
-                {
-                  _req_send(q->request);
-                  return 1;
-                }
-              return 0;
+              goto done;
             }
 
           q->request->interface = ifo;
@@ -370,6 +367,8 @@ static int _query_start(ohp_query q)
     }
   ifindex = ifo ? ifo->ifindex : 0;
   q->service = _get_conn();
+  if (!q->service)
+    goto done;
   const char *qb = q->query;
   if (ifo)
     qb = TO_MDNS(ifo, q->query);
@@ -382,9 +381,16 @@ static int _query_start(ohp_query q)
                                    q) != kDNSServiceErr_NoError))
     {
       L_ERR("Error %d initializing DNSServiceQueryRecord", err);
-      abort();
+      goto done;
     }
   q->request->running++;
+  return 0;
+ done:
+  if (!q->request->running)
+    {
+      _req_send(q->request);
+      return 1;
+    }
   return 0;
 }
 
@@ -432,7 +438,7 @@ void d2m_req_start(ohp_request req)
    * here. */
   uloop_timeout_set(&req->timeout, MAXIMUM_REQUEST_DURATION_IN_MS);
   req->timeout.cb = _request_timeout;
-
+  req->started = true;
   list_add(&req->lh, &active_ohp_requests);
   list_for_each_entry(q, &req->queries, head)
     {
@@ -446,7 +452,9 @@ void d2m_req_stop(ohp_request req)
   ohp_query q;
 
   L_DEBUG("d2m_req_stop %p", req);
-
+  if (!req->started)
+    return;
+  req->started = false;
   list_del(&req->lh);
 
   /* Cancel the timeout if we already didn't fire it. */
@@ -529,9 +537,14 @@ d2m_req_add_query(ohp_request req, const char *query, uint16_t qtype)
         }
     }
   q = calloc(1, sizeof(*q));
-  if (!q) abort();
+  if (!q)
+    return NULL;
   q->query = strdup(query);
-  if (!q->query) abort();
+  if (!q->query)
+    {
+      free(q);
+      return NULL;
+    }
   q->dq.qtype = qtype;
   q->dq.qclass = kDNSServiceClass_IN;
   q->request = req;
