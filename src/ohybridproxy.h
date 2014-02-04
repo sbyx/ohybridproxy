@@ -1,3 +1,14 @@
+/*
+ * $Id: ohybridproxy.h $
+ *
+ * Author: Steven Barth <steven@midlink.org>
+ * Author: Markus Stenberg <markus stenberg@iki.fi>
+ *
+ * Copyright (c) 2014 cisco Systems, Inc.
+ *
+ */
+
+
 #ifndef OHP_H
 #define OHP_H
 

@@ -2,6 +2,7 @@
  * $Id: dns2mdns.c $
  *
  * Author: Markus Stenberg <markus stenberg@iki.fi>
+ * Author: Steven Barth <steven@midlink.org>
  *
  * Copyright (c) 2014 cisco Systems, Inc.
  *
