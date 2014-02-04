@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Tue Feb  4 17:04:19 2014 mstenber
- * Edit time:     340 min
+ * Last modified: Tue Feb  4 18:03:07 2014 mstenber
+ * Edit time:     345 min
  *
  */
 
@@ -39,8 +39,7 @@ typedef struct d2m_interface_struct {
 
 static struct list_head interfaces = LIST_HEAD_INIT(interfaces);
 static DNSServiceRef conn = NULL;
-static void _fd_callback(struct uloop_fd *u __unused, unsigned int events __unused);
-static struct uloop_fd conn_fd = { .cb = _fd_callback };
+static struct uloop_fd conn_fd;
 
 static int _query_start(struct ohp_query *q);
 static int _query_stop(struct ohp_query *q);
@@ -58,10 +57,12 @@ static void _reset_state()
   /* Then, make sure that the 'conn' is also zapped if any. */
   if (conn)
     {
+      /* Delete it from uloop. */
+      uloop_fd_delete(&conn_fd);
+
       DNSServiceRefDeallocate(conn);
       conn = NULL;
     }
-  uloop_fd_delete(&conn_fd);
 }
 
 static void
@@ -96,6 +97,8 @@ static DNSServiceRef _get_conn()
           L_ERR("error %d in get_conn", error);
           return NULL;
         }
+      memset(&conn_fd, 0, sizeof(conn_fd));
+      conn_fd.cb = _fd_callback;
       conn_fd.fd = DNSServiceRefSockFD(conn);
       if (uloop_fd_add(&conn_fd, ULOOP_READ) < 0)
         {
