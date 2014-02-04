@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Mon Jan 13 15:16:11 2014 mstenber
- * Edit time:     322 min
+ * Last modified: Tue Feb  4 16:55:50 2014 mstenber
+ * Edit time:     336 min
  *
  */
 
@@ -20,6 +20,8 @@
 #include "dns_util.h"
 
 #define LOCAL_SUFFIX "local."
+
+static struct list_head active_ohp_requests = LIST_HEAD_INIT(active_ohp_requests);
 
 typedef struct d2m_interface_struct {
   struct list_head head;
@@ -37,24 +39,52 @@ typedef struct d2m_interface_struct {
 
 static struct list_head interfaces = LIST_HEAD_INIT(interfaces);
 static DNSServiceRef conn = NULL;
+static void _fd_callback(struct uloop_fd *u __unused, unsigned int events __unused);
+static struct uloop_fd conn_fd = { .cb = _fd_callback };
 
 static int _query_start(struct ohp_query *q);
 static int _query_stop(struct ohp_query *q);
 static void _req_send(ohp_request req);
+
+static void _reset_state()
+{
+  ohp_request r, nr;
+
+  /* First off, clear the active connections */
+  list_for_each_entry_safe(r, nr, &active_ohp_requests, lh)
+    {
+      d2m_req_stop(r);
+    }
+  /* Then, make sure that the 'conn' is also zapped if any. */
+  if (conn)
+    {
+      DNSServiceRefDeallocate(conn);
+      conn = NULL;
+    }
+  uloop_fd_delete(&conn_fd);
+}
 
 static void
 _fd_callback(struct uloop_fd *u __unused, unsigned int events __unused)
 {
   int r;
 
-  if ((r = DNSServiceProcessResult(conn)) != kDNSServiceErr_NoError)
+  if (!u->error && !u->eof)
     {
+      if ((r = DNSServiceProcessResult(conn)) == kDNSServiceErr_NoError)
+        return;
       L_ERR("error %d in _fd_callback", r);
     }
+  else if (u->eof)
+    {
+      L_ERR("eof from mdnsd socket");
+    }
+  else
+    {
+      L_ERR("error from mdnsd socket");
+    }
+  _reset_state();
 }
-
-static struct uloop_fd conn_fd = { .cb = _fd_callback };
-
 
 static DNSServiceRef _get_conn()
 {
@@ -403,6 +433,7 @@ void d2m_req_start(ohp_request req)
   uloop_timeout_set(&req->timeout, MAXIMUM_REQUEST_DURATION_IN_MS);
   req->timeout.cb = _request_timeout;
 
+  list_add(&req->lh, &active_ohp_requests);
   list_for_each_entry(q, &req->queries, head)
     {
       if (_query_start(q))
@@ -415,6 +446,8 @@ void d2m_req_stop(ohp_request req)
   ohp_query q;
 
   L_DEBUG("d2m_req_stop %p", req);
+
+  list_del(&req->lh);
 
   /* Cancel the timeout if we already didn't fire it. */
   uloop_timeout_cancel(&req->timeout);

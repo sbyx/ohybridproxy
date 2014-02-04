@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:23:19 2014 mstenber
- * Last modified: Thu Jan  9 21:36:52 2014 mstenber
- * Edit time:     42 min
+ * Last modified: Tue Feb  4 16:46:24 2014 mstenber
+ * Edit time:     43 min
  *
  */
 
@@ -60,6 +60,11 @@ typedef struct ohp_query {
 
 /* Shared structure between this + main ohp loop. */
 typedef struct ohp_request {
+  /* List head for dns2mdns.c; a list of _active_ requests (start
+   * called, but not yet stop) is kept there. */
+  struct list_head lh;
+
+  /* Active timeout if any. */
   struct uloop_timeout timeout;
 
   /* Information from the DNS request by client. */

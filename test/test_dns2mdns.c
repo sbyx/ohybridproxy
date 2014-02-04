@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:30:07 2014 mstenber
- * Last modified: Mon Jan 13 15:29:03 2014 mstenber
- * Edit time:     57 min
+ * Last modified: Tue Feb  4 16:56:11 2014 mstenber
+ * Edit time:     59 min
  *
  */
 
@@ -240,8 +240,8 @@ void check_dns2mdns(void)
   /* Free the structure. */
   d2m_req_free(&req);
 
-#undef DNSServiceRefDeallocate
-  DNSServiceRefDeallocate(_get_conn());
+  /* Clear the slate */
+  _reset_state();
 }
 
 int main(int argc, char **argv)
