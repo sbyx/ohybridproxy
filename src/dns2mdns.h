@@ -6,7 +6,7 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:23:19 2014 mstenber
- * Last modified: Tue Feb  4 17:00:07 2014 mstenber
+ * Last modified: Mon Feb 10 10:14:46 2014 mstenber
  * Edit time:     44 min
  *
  */
@@ -45,6 +45,9 @@ typedef struct ohp_query {
    */
   char *query;
   struct dns_query dq;
+
+  /* Replace DNS reply names with original query name (relevant with .arpa.) */
+  bool use_query_name_in_reply;
 
   /* Pointer to the mDNSResponder client context (dns_sd.h) for the
    * query we are runnning (if any). */

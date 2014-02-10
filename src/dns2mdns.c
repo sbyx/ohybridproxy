@@ -7,8 +7,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Tue Feb  4 18:03:07 2014 mstenber
- * Edit time:     345 min
+ * Last modified: Mon Feb 10 10:29:51 2014 mstenber
+ * Edit time:     377 min
  *
  */
 
@@ -21,6 +21,11 @@
 #include "dns_util.h"
 
 #define LOCAL_SUFFIX "local."
+
+/* Hack which deals with some implementations publishing
+ * linklocal-only addresses even if they really have globals. Use with
+ * care. */
+#undef ENABLE_HACK_GLOBALISH_TO_LINKLOCAL_REWRITE
 
 static struct list_head active_ohp_requests = LIST_HEAD_INIT(active_ohp_requests);
 
@@ -176,7 +181,12 @@ _rewrite_domain(const char *src, char *buf, int buf_len,
 static ohp_rr
 _query_add_rr(ohp_query q, const char *name, dns_rr drr, const void *rdata)
 {
-  const char *rrname = TO_DNS(q->request->interface, name);
+  const char *rrname;
+
+  if (q->use_query_name_in_reply)
+    rrname = q->query;
+  else
+    rrname = TO_DNS(q->request->interface, name);
 
   if (!rrname)
     return NULL;
@@ -236,7 +246,7 @@ _service_callback(DNSServiceRef service __unused,
 
       list_for_each_entry(ip, &interfaces, head)
         {
-          if (ip->ifindex == ifindex)
+          if (ip->ifindex == ifindex || !ifindex)
             {
               q->request->interface = ip;
               break;
@@ -330,10 +340,11 @@ _service_callback(DNSServiceRef service __unused,
 
 static int _query_start(ohp_query q)
 {
-  int flags = kDNSServiceFlagsShareConnection;
+  int flags = kDNSServiceFlagsShareConnection | kDNSServiceFlagsForceMulticast;
   int ifindex;
   int err;
   d2m_interface ifo = NULL, ip;
+  const char *qb = q->query;
 
   /*
    * First off, if the _request_ is already bound to an interface, we
@@ -348,6 +359,39 @@ static int _query_start(ohp_query q)
       if (_string_endswith(q->query, ".arpa."))
         {
           ifo = NULL;
+#ifdef ENABLE_HACK_GLOBALISH_TO_LINKLOCAL_REWRITE
+          /* Check if it's IPv6 address; if so, and it's for
+           * non-linklocal address, we may have to rewrite it (This is
+           * mainly thanks to mdnsresponder(?) bug in which globals
+           * aren't advertised for the reverses even if
+           * available. Sigh.). */
+          struct in6_addr a;
+          if (escaped2ipv6(qb, &a))
+            {
+              /* Ok, it _is_ IPv6 address. If it's ULA or GUA, convert
+               * it to linklocal one. */
+              if ((a.s6_addr[0] & 0x70) == 0x20
+                  || ((a.s6_addr[0] & 0xfe) == 0xfc))
+                {
+                  char *c = alloca(DNS_MAX_ESCAPED_LEN);
+                  int i;
+                  if (c)
+                    {
+                      a.s6_addr[0] = 0xFE;
+                      a.s6_addr[1] = 0x80;
+                      for (i = 2 ; i < 8 ; i++)
+                        a.s6_addr[i] = 0;
+                      ipv62escaped(&a, c);
+                      qb = c;
+                    }
+                }
+              /* Reverse direction is done automatically, as we change
+               * here only the arguments given to the DNS-SD library;
+               * the PTR's rdata is just a name (that will be
+               * rewritten appropriately). */
+            }
+#endif /* ENABLE_HACK_GLOBALISH_TO_LINKLOCAL_REWRITE */
+          q->use_query_name_in_reply = true;
         }
       else
         {
@@ -369,13 +413,12 @@ static int _query_start(ohp_query q)
           q->request->interface = ifo;
         }
     }
+  if (ifo)
+    qb = TO_MDNS(ifo, q->query);
   ifindex = ifo ? ifo->ifindex : 0;
   q->service = _get_conn();
   if (!q->service)
     goto done;
-  const char *qb = q->query;
-  if (ifo)
-    qb = TO_MDNS(ifo, q->query);
   L_DEBUG("DNSServiceQueryRecord %s @ %d", qb, ifindex);
   if ((err = DNSServiceQueryRecord(&q->service, flags, ifindex,
                                    qb,

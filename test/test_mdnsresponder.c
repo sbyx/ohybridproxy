@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Mon Jan  6 13:25:07 2014 mstenber
- * Last modified: Mon Jan  6 14:54:38 2014 mstenber
- * Edit time:     31 min
+ * Last modified: Mon Feb 10 07:42:39 2014 mstenber
+ * Edit time:     37 min
  *
  */
 
@@ -23,6 +23,9 @@
 #include <unistd.h>
 #include <libubox/uloop.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <net/if.h>
 
 struct dummy_struct {
   struct uloop_fd ufd;
@@ -64,16 +67,34 @@ void uloop_fd_callback(struct uloop_fd *u, unsigned int events)
 int main(int argc, char **argv)
 {
   struct dummy_struct ds;
+  int c;
+  int type = kDNSServiceType_ANY;
+  int flags = 0;
+  int ifindex = 0;
 
   memset (&ds, 0, sizeof(ds));
+  while ((c = getopt(argc, argv, "f:t:i:")) != -1)
+    switch (c)
+      {
+      case 't':
+        type = atoi(optarg);
+        break;
+      case 'i':
+        ifindex = if_nametoindex(optarg);
+        break;
+      case 'f':
+        flags = atoi(optarg);
+        break;
+      }
   if (argc <= 1)
     {
-      fprintf(stderr, "Usage: %s <name> [type]\n", argv[0]);
+      fprintf(stderr, "Usage: %s [-f <flags>] [-i <if>] [-t <type>] <name>\n",
+              argv[0]);
       exit(1);
     }
-  if (DNSServiceQueryRecord(&ds.service, 0, 0,
+  if (DNSServiceQueryRecord(&ds.service, flags, ifindex,
                             argv[1],
-                            kDNSServiceType_ANY,
+                            type,
                             kDNSServiceClass_IN,
                             dummy_callback,
                             NULL) != kDNSServiceErr_NoError)

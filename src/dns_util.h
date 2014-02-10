@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 11:41:22 2014 mstenber
- * Last modified: Tue Jan 14 21:33:25 2014 mstenber
- * Edit time:     61 min
+ * Last modified: Mon Feb 10 09:25:01 2014 mstenber
+ * Edit time:     85 min
  *
  */
 
@@ -19,6 +19,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+
+/* in6_addr */
+#include <netinet/in.h>
 
 /* Single (binary) label max length. */
 #define DNS_MAX_L_LEN 64
@@ -254,6 +257,71 @@ int ll2escaped(const uint8_t *ll, int ll_left, char *escaped, int escaped_left)
     }
   PUSH_CHAR(0);
   return ll - oll;
+}
+
+/*
+ * Convert escaped string with IPv6 reverse address to real IPv6 address.
+ *
+ * Return true in case the operation succeeded, and FALSE otherwise.
+ */
+static inline
+bool escaped2ipv6(const char *escaped, struct in6_addr *addr)
+{
+  char tbuf[DNS_MAX_ESCAPED_LEN], *c = tbuf, *d;
+  int i;
+
+  if (strlen(escaped) >= DNS_MAX_ESCAPED_LEN)
+    {
+      L_ERR("escaped2ipv6: too long input");
+      return false;
+    }
+  strcpy(tbuf, escaped);
+  for (i = 31 ; i >= 0 ; i--)
+    {
+      if (!(d = strchr(c, '.')))
+        {
+          L_ERR("escaped2ipv6: too short label");
+          return false;
+        }
+      *d++ = 0;
+      long l = strtol(c, NULL, 16);
+      if (!(l >= 0 && l < 16))
+        {
+          L_ERR("escaped2ipv6: invalid single label %s", c);
+          return false;
+        }
+      if (i % 2)
+        addr->s6_addr[i/2] = l;
+      else
+        addr->s6_addr[i/2] |= l << 4;
+      c = d;
+    }
+  /* The rest should be ip6.arpa. or we're in trouble */
+  if (strcasecmp(c, "ip6.arpa."))
+    {
+      L_ERR("escaped2ipv6: invalid leftovers:%s", c);
+      return false;
+    }
+  return true;
+}
+
+/*
+ * Convert IPv6 address to escaped label list with IPv6 reverse address.
+ *
+ * NOTE: Bad things happen if the buffer is not of sufficient size.
+ */
+static inline
+void ipv62escaped(const struct in6_addr *addr, char *escaped)
+{
+  int i;
+  for (i = 15 ; i >= 0 ; i--)
+    {
+      sprintf(escaped, "%x.%x.",
+              addr->s6_addr[i] % 0x10,
+              addr->s6_addr[i] / 0x10);
+      escaped += strlen(escaped);
+    }
+  strcpy(escaped, "ip6.arpa.");
 }
 
 #undef PUSH_CHAR

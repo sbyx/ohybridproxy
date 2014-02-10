@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 13:01:23 2014 mstenber
- * Last modified: Tue Jan 14 21:35:03 2014 mstenber
- * Edit time:     32 min
+ * Last modified: Mon Feb 10 09:19:38 2014 mstenber
+ * Edit time:     47 min
  *
  */
 
@@ -41,6 +41,21 @@ int expected_binary_size[] = {
   1+3+1+5+1,
   1+3+1+5+1
 };
+
+const char *test_ipv6_strings[] = {
+  /* valid case */
+  "7.9.a.8.6.1.e.f.f.f.f.b.6.f.a.b.0.0.0.0.e.e.d.d.0.7.4.0.1.0.0.2.ip6.arpa.",
+  /* too long */
+  "7.9.a.8.6.1.e.f.f.f.f.b.6.f.a.b.0.0.0.0.e.e.d.d.0.7.4.0.1.0.0.2.2.ip6.arpa.",
+  /* too short */
+  "7.9.a.8.6.1.e.f.f.f.f.b.6.f.a.b.0.0.0.0.e.e.d.d.0.7.4.0.1.0.2.ip6.arpa.",
+  /* too weird */
+  "17.9.a.8.6.1.e.f.f.f.f.b.6.f.a.b.0.0.0.0.e.e.d.d.0.7.4.0.1.0.0.2.ip6.arpa.",
+  /* non-ip6-arpa */
+  "7.9.a.8.6.1.e.f.f.f.f.b.6.f.a.b.0.0.0.0.e.e.d.d.0.7.4.0.1.0.0.2.ip6.arpx.",
+  NULL
+};
+
 
 void check_test_string(const char *s, int es, int es2)
 {
@@ -113,12 +128,39 @@ void check_test_strings(void)
     }
 }
 
+
+
+
+void check_test_ipv6(void)
+{
+  int i;
+  struct in6_addr a;
+  char tbuf[DNS_MAX_ESCAPED_LEN];
+  const char *s;
+
+  for (i = 0 ; (s=test_ipv6_strings[i]) ; i++)
+    {
+      L_DEBUG("iteration #%d: %s", i, s);
+      if (escaped2ipv6(s, &a))
+        {
+          sput_fail_unless(i == 0, "_first_ succeeds");
+          ipv62escaped(&a, tbuf);
+          sput_fail_unless(strcmp(s, tbuf) == 0, "ipv62escaped failed");
+        }
+      else
+        {
+          sput_fail_unless(i != 0, "non-first fails");
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
   openlog(argv[0], LOG_CONS | LOG_PERROR, LOG_DAEMON);
   sput_start_testing();
   sput_enter_suite("dns_util"); /* optional */
   sput_run_test(check_test_strings);
+  sput_run_test(check_test_ipv6);
   sput_leave_suite(); /* optional */
   sput_finish_testing();
   return sput_get_return_value();
