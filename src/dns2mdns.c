@@ -7,8 +7,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Mon Feb 10 10:29:51 2014 mstenber
- * Edit time:     377 min
+ * Last modified: Wed Feb 12 11:10:28 2014 mstenber
+ * Edit time:     378 min
  *
  */
 
@@ -270,26 +270,27 @@ _service_callback(DNSServiceRef service __unused,
   switch (rrtype)
     {
     case kDNSServiceType_PTR:
-      {
-        char buf[kDNSServiceMaxDomainName];
-
-        /* The relevant name is the only content of ptr. */
-        if (ll2escaped(rdata, rdlen, buf, sizeof(buf))<0)
-          {
-            L_ERR("error decoding ptr record");
-            return;
-          }
-        const char *qb = TO_DNS(q->request->interface, buf);
-        if (!qb)
-            return;
-        if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_SRV)))
-          _query_start(nq);
-        if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_TXT)))
-          _query_start(nq);
-      }
-      /* Inverse PTRs are typically unique. */
+      /* Inverse PTRs are typically unique (and lack SRV/TXT of interest). */
       if (_string_endswith(name, ".arpa."))
         probably_cf = true;
+      else
+        {
+          char buf[kDNSServiceMaxDomainName];
+
+          /* The relevant name is the only content of ptr. */
+          if (ll2escaped(rdata, rdlen, buf, sizeof(buf))<0)
+            {
+              L_ERR("error decoding ptr record");
+              return;
+            }
+          const char *qb = TO_DNS(q->request->interface, buf);
+          if (!qb)
+            return;
+          if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_SRV)))
+            _query_start(nq);
+          if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_TXT)))
+            _query_start(nq);
+        }
       break;
     case kDNSServiceType_SRV:
       {
