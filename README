@@ -1,0 +1,41 @@
+ohybridproxy - an mDNS/DNS hybrid-proxy based on mDNSResponder
+
+
+** Abstract **
+
+ohybridproxy is a mDNS/DNS hybrid-proxy which allows to exchange service
+discovery and other mDNS-information usually limited to a single link
+in routed networks with multiple links. This process is explained in
+http://tools.ietf.org/html/draft-cheshire-dnssd-hybrid-01 which inspired
+this implementation.
+
+
+** Features **
+
+1. Translation of DNS requests 
+	a) IPv4 + IPv6 support
+	b) Filtering of link-local addresses
+	c) UDP + TCP support
+
+2. Support for multiple interfaces
+	a) Individual domain setting per interface
+	b) Automatic reverse lookup on all interfaces
+
+
+** Compiling **
+
+ohybridproxy depends on the following libraries:
+* libubox: http://nbd.name/gitweb.cgi?p=luci2/libubox.git
+* libdns_sd: http://opensource.apple.com/tarballs/mDNSResponder
+
+ohybridproxy uses cmake:
+* To prepare a Makefile use:  "cmake ." 
+* To build / install use: "make" / "make install" afterwards.
+* To build DEB or RPM packages use: "make package" afterwards.
+
+
+** Firmware Integration **
+
+Although ohybridproxy can be statically configured this can be cumbersome in a
+network with several routers. It is advised to exchange and manage its
+configuration through a network configuration protocol.
