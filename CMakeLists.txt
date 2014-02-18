@@ -21,8 +21,8 @@ target_link_libraries(ohybridproxy ubox ${dns_sd})
 
 # Unit test stuff
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fprofile-arcs -ftest-coverage")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
 
 # With this, 'make check' works even in a clean tree (sigh, cmake..)
 add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
