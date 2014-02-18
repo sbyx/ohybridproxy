@@ -236,10 +236,9 @@ void show_help(const char *prog)
 	printf(" -a binds to specific IP address\n");
 	printf(" -p binds to specific UDP port (default 53)\n");
 
-	printf(" -h shows this help\n");
-	printf(" For the given <ifname>(s), <domain> requests are mapped to .local\n"
-		" and handled on the interface. Reverse queries are handled based\n"
-		" on closest interface with configured domain.\n");
+	printf(" -h shows this help\n\n");
+	printf(" For the given <ifname>(s), matching <domain> requests are mapped to .local\n"
+		" and handled on the interface. Reverse queries are attempted on all interfaces.\n");
 }
 
 
