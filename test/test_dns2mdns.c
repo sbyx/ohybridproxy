@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:30:07 2014 mstenber
- * Last modified: Tue Feb  4 16:56:11 2014 mstenber
- * Edit time:     59 min
+ * Last modified: Thu Feb 20 15:07:01 2014 mstenber
+ * Edit time:     63 min
  *
  */
 
@@ -32,6 +32,7 @@
 
 #define DNSServiceQueryRecord dummy_DNSServiceQueryRecord
 #define DNSServiceRefDeallocate(x)
+#define DNSServiceRefSockFD(x) 0
 
 DNSServiceErrorType dummy_DNSServiceQueryRecord(DNSServiceRef *service,
                                                 DNSServiceFlags flags,
@@ -241,7 +242,7 @@ void check_dns2mdns(void)
   d2m_req_free(&req);
 
   /* Clear the slate */
-  _reset_state();
+  _state_reset();
 }
 
 int main(int argc, char **argv)

@@ -7,8 +7,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Wed Feb 12 11:10:28 2014 mstenber
- * Edit time:     378 min
+ * Last modified: Thu Feb 20 15:15:17 2014 mstenber
+ * Edit time:     431 min
  *
  */
 
@@ -44,41 +44,44 @@ typedef struct d2m_interface_struct {
 } *d2m_interface;
 
 static struct list_head interfaces = LIST_HEAD_INIT(interfaces);
-static DNSServiceRef conn = NULL;
-static struct uloop_fd conn_fd;
+
+typedef struct d2m_conn_struct {
+  DNSServiceRef service;
+  struct uloop_fd fd;
+} *d2m_conn;
 
 static int _query_start(struct ohp_query *q);
 static int _query_stop(struct ohp_query *q);
 static void _req_send(ohp_request req);
 
-static void _reset_state()
+static void _conn_free(d2m_conn c)
 {
+  if (!c)
+    return;
+  if (c->fd.cb)
+    uloop_fd_delete(&c->fd);
+  if (c->service)
+    DNSServiceRefDeallocate(c->service);
+  free(c);
+}
+
+static void _state_reset()
+{
+  /* First off, clear the active requests */
   ohp_request r, nr;
-
-  /* First off, clear the active connections */
   list_for_each_entry_safe(r, nr, &active_ohp_requests, lh)
-    {
-      d2m_req_stop(r);
-    }
-  /* Then, make sure that the 'conn' is also zapped if any. */
-  if (conn)
-    {
-      /* Delete it from uloop. */
-      uloop_fd_delete(&conn_fd);
-
-      DNSServiceRefDeallocate(conn);
-      conn = NULL;
-    }
+    d2m_req_stop(r);
 }
 
 static void
-_fd_callback(struct uloop_fd *u __unused, unsigned int events __unused)
+_fd_callback(struct uloop_fd *u, unsigned int events __unused)
 {
+  d2m_conn c = container_of(u, struct d2m_conn_struct, fd);
   int r;
 
   if (!u->error && !u->eof)
     {
-      if ((r = DNSServiceProcessResult(conn)) == kDNSServiceErr_NoError)
+      if ((r = DNSServiceProcessResult(c->service)) == kDNSServiceErr_NoError)
         return;
       L_ERR("error %d in _fd_callback", r);
     }
@@ -90,32 +93,17 @@ _fd_callback(struct uloop_fd *u __unused, unsigned int events __unused)
     {
       L_ERR("error from mdnsd socket");
     }
-  _reset_state();
+  _state_reset();
 }
 
-static DNSServiceRef _get_conn()
+static void _conn_register(d2m_conn conn)
 {
-  if (!conn)
+  conn->fd.fd = DNSServiceRefSockFD(conn->service);
+  if (conn->fd.fd)
     {
-      int error = DNSServiceCreateConnection(&conn);
-      if (error)
-        {
-          L_ERR("error %d in get_conn", error);
-          return NULL;
-        }
-      memset(&conn_fd, 0, sizeof(conn_fd));
-      conn_fd.cb = _fd_callback;
-      conn_fd.fd = DNSServiceRefSockFD(conn);
-      if (uloop_fd_add(&conn_fd, ULOOP_READ) < 0)
-        {
-          L_ERR("Error in uloop_fd_add");
-          DNSServiceRefDeallocate(conn);
-          conn = NULL;
-          return NULL;
-        }
-      L_DEBUG("DNSServiceCreateConnection succeeded; now have connection");
+      conn->fd.cb = _fd_callback;
+      (void)uloop_fd_add(&conn->fd, ULOOP_READ);
     }
-  return conn;
 }
 
 static bool
@@ -341,7 +329,7 @@ _service_callback(DNSServiceRef service __unused,
 
 static int _query_start(ohp_query q)
 {
-  int flags = kDNSServiceFlagsShareConnection | kDNSServiceFlagsForceMulticast;
+  int flags = kDNSServiceFlagsForceMulticast;
   int ifindex;
   int err;
   d2m_interface ifo = NULL, ip;
@@ -417,11 +405,11 @@ static int _query_start(ohp_query q)
   if (ifo)
     qb = TO_MDNS(ifo, q->query);
   ifindex = ifo ? ifo->ifindex : 0;
-  q->service = _get_conn();
-  if (!q->service)
+  q->conn = calloc(1, sizeof(*q->conn));
+  if (!q->conn)
     goto done;
   L_DEBUG("DNSServiceQueryRecord %s @ %d", qb, ifindex);
-  if ((err = DNSServiceQueryRecord(&q->service, flags, ifindex,
+  if ((err = DNSServiceQueryRecord(&q->conn->service, flags, ifindex,
                                    qb,
                                    q->dq.qtype,
                                    q->dq.qclass,
@@ -431,6 +419,7 @@ static int _query_start(ohp_query q)
       L_ERR("Error %d initializing DNSServiceQueryRecord", err);
       goto done;
     }
+  _conn_register(q->conn);
   q->request->running++;
   return 0;
  done:
@@ -453,10 +442,10 @@ static void _req_send(ohp_request req)
 
 static int _query_stop(ohp_query q)
 {
-  if (q->service)
+  if (q->conn && q->conn->service)
     {
-      DNSServiceRefDeallocate(q->service);
-      q->service = NULL;
+      DNSServiceRefDeallocate(q->conn->service);
+      q->conn->service = NULL;
       if (!(--(q->request->running)))
         {
           _req_send(q->request);
@@ -610,6 +599,7 @@ static void _rr_free(ohp_rr rr)
 
 static void _query_free(ohp_query q)
 {
+  _conn_free(q->conn);
   list_del(&q->head);
   while (!list_empty(&q->rrs))
     _rr_free(list_first_entry(&q->rrs, struct ohp_rr, head));

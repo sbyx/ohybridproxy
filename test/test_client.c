@@ -6,7 +6,7 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 11:13:07 2014 mstenber
- * Last modified: Mon Jan 13 19:56:41 2014 mstenber
+ * Last modified: Thu Feb 20 15:01:48 2014 mstenber
  * Edit time:     20 min
  *
  */
@@ -65,6 +65,6 @@ int main(int argc, char **argv)
 
   /* Clean up - hopefully we won't leak memory if we do it right. */
   d2m_req_free(&r);
-  DNSServiceRefDeallocate(conn);
+  _state_reset();
   return 0;
 }

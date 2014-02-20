@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:23:19 2014 mstenber
- * Last modified: Mon Feb 10 10:14:46 2014 mstenber
- * Edit time:     44 min
+ * Last modified: Thu Feb 20 13:25:32 2014 mstenber
+ * Edit time:     46 min
  *
  */
 
@@ -49,9 +49,9 @@ typedef struct ohp_query {
   /* Replace DNS reply names with original query name (relevant with .arpa.) */
   bool use_query_name_in_reply;
 
-  /* Pointer to the mDNSResponder client context (dns_sd.h) for the
-   * query we are runnning (if any). */
-  DNSServiceRef service;
+  /* Pointer to the connection we are using (encapsulates also service
+   * handle; may have 1:1 relationship to connections, or not). */
+  struct d2m_conn_struct *conn;
 
   /* Backpointer to the request we are in. */
   struct ohp_request *request;
