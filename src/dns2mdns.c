@@ -7,8 +7,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Thu Feb 20 15:15:17 2014 mstenber
- * Edit time:     431 min
+ * Last modified: Mon Mar 31 13:29:49 2014 mstenber
+ * Edit time:     432 min
  *
  */
 
@@ -323,7 +323,8 @@ _service_callback(DNSServiceRef service __unused,
   drr.rdlen = rdlen;
   drr.ttl = ttl;
   /* If add succeeds, and is probably cf, we can perhaps stop the query. */
-  if (_query_add_rr(q, name, &drr, rdata) && probably_cf)
+  if (_query_add_rr(q, name, &drr, rdata) && probably_cf
+      && !(flags & kDNSServiceFlagsMoreComing))
     _query_stop(q);
 }
 

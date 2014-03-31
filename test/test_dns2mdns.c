@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:30:07 2014 mstenber
- * Last modified: Thu Feb 20 15:07:01 2014 mstenber
- * Edit time:     63 min
+ * Last modified: Mon Mar 31 13:28:05 2014 mstenber
+ * Edit time:     71 min
  *
  */
 
@@ -98,7 +98,7 @@ void ohp_send_reply(struct ohp_request *req)
   TO_BE16(msg);
   sput_fail_unless(msg->qdcount == 1, "qdcount");
   sput_fail_unless(msg->ancount == 1, "ancount");
-  sput_fail_unless(msg->arcount == 2, "arcount");
+  sput_fail_unless(msg->arcount == 3, "arcount");
 
   /* Fallback - no additional records */
   or = r;
@@ -157,6 +157,8 @@ void check_dns2mdns(void)
   d2m_req_start(&req);
   smock_is_empty();
 
+  sput_fail_unless(req.running == 1, "1 running");
+
   /* Provide PTR response. Make sure it gets resolved. */
   r = escaped2ll(SERVICE_NAME, buf, sizeof(buf));
   sput_fail_unless(r > 0, "escaped2ll failed");
@@ -183,6 +185,8 @@ void check_dns2mdns(void)
                     120,
                     q);
   smock_is_empty();
+  sput_fail_unless(req.running == 3, "3 running");
+
 
   /* Now, our fictional SRV query returns something.. */
   srv_q = first_dnsqr_context;
@@ -213,13 +217,34 @@ void check_dns2mdns(void)
                     120,
                     srv_q);
   smock_is_empty();
+  sput_fail_unless(req.running == 4, "4 running");
 
-  /* And then return IPv6 address for the host. */
+  /* And then return _two_ IPv6 addresses for the host. */
   aaaa_q = first_dnsqr_context;
   sput_fail_unless(aaaa_q, "no q");
 
   r = 16;
   memset(buf, 42, r);
+  _service_callback(NULL,
+                    kDNSServiceFlagsAdd | kDNSServiceFlagsMoreComing,
+                    DIF,
+                    kDNSServiceErr_NoError,
+                    HOST_NAME,
+                    kDNSServiceType_AAAA,
+                    kDNSServiceClass_IN,
+                    r,
+                    buf,
+                    120,
+                    aaaa_q);
+  smock_is_empty();
+
+  aaaa_q = first_dnsqr_context;
+  sput_fail_unless(aaaa_q, "no q");
+  /* receiving one record should not terminate the AAAA query. */
+  sput_fail_unless(req.running == 4, "4 running");
+
+  r = 16;
+  memset(buf, 43, r);
   _service_callback(NULL,
                     kDNSServiceFlagsAdd,
                     DIF,
@@ -232,6 +257,7 @@ void check_dns2mdns(void)
                     120,
                     aaaa_q);
   smock_is_empty();
+  sput_fail_unless(req.running == 3, "3 running");
 
   /* Ok. Let's pretend we get a timeout. */
   smock_push_bool("ohpsr", true);
