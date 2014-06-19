@@ -7,8 +7,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Mon Mar 31 13:29:49 2014 mstenber
- * Edit time:     432 min
+ * Last modified: Thu Jun 12 15:34:21 2014 mstenber
+ * Edit time:     0 min
  *
  */
 
@@ -61,7 +61,10 @@ static void _conn_free(d2m_conn c)
   if (c->fd.cb)
     uloop_fd_delete(&c->fd);
   if (c->service)
-    DNSServiceRefDeallocate(c->service);
+    {
+      /* This macro may be apparently NOP too? */
+      DNSServiceRefDeallocate(c->service);
+    }
   free(c);
 }
 
