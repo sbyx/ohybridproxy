@@ -157,7 +157,8 @@ static void ohp_handle_tcp_data(struct ustream *s, __unused int bytes_new)
 {
 	int pending;
 	uint8_t *data = (uint8_t*)ustream_get_read_buf(s, &pending);
-	struct ohp_request_tcp *tcp = container_of(s, struct ohp_request_tcp, conn);
+	struct ustream_fd *ufd = container_of(s, struct ustream_fd, stream);
+	struct ohp_request_tcp *tcp = container_of(ufd, struct ohp_request_tcp, conn);
 
 	L_DEBUG("TCP connection %i has %i bytes pending", tcp->conn.fd.fd, pending);
 
@@ -198,7 +199,8 @@ static void ohp_handle_tcp_write(struct ustream *fd, __unused int bytes)
 // TCP transmission has ended, either because of success or timeout or other error
 static void ohp_handle_tcp_done(struct ustream *s)
 {
-	struct ohp_request_tcp *tcp = container_of(s, struct ohp_request_tcp, conn);
+	struct ustream_fd *ufd = container_of(s, struct ustream_fd, stream);
+	struct ohp_request_tcp *tcp = container_of(ufd, struct ohp_request_tcp, conn);
 	ustream_free(s);
 	close(tcp->conn.fd.fd);
 	if (tcp->req.active)
