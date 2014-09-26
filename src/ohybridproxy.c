@@ -277,12 +277,17 @@ help:
 		return 1;
 	}
 	udpsrv.fd = usock(USOCK_UDP | USOCK_SERVER | USOCK_NONBLOCK, bindaddr, bindport);
-	tcpsrv.fd = usock(USOCK_TCP | USOCK_SERVER | USOCK_NONBLOCK, bindaddr, bindport);
-
-	if (udpsrv.fd < 0 || tcpsrv.fd < 0) {
-		L_ERR("Unable to bind DNS-socket: %s", strerror(errno));
+	if (udpsrv.fd < 0) {
+		L_ERR("Unable to bind UDP DNS-socket %s/%s: %s", bindaddr, bindport, strerror(errno));
 		return 2;
 	}
+
+	tcpsrv.fd = usock(USOCK_TCP | USOCK_SERVER | USOCK_NONBLOCK, bindaddr, bindport);
+	if (tcpsrv.fd < 0) {
+		L_ERR("Unable to bind TCP DNS-socket %s/%s: %s", bindaddr, bindport, strerror(errno));
+		return 2;
+	}
+
 
 	uloop_fd_add(&udpsrv, ULOOP_READ | ULOOP_EDGE_TRIGGER);
 	uloop_fd_add(&tcpsrv, ULOOP_READ | ULOOP_EDGE_TRIGGER);
