@@ -276,13 +276,13 @@ help:
 		show_help(prog);
 		return 1;
 	}
-	udpsrv.fd = usock(USOCK_UDP | USOCK_SERVER | USOCK_NONBLOCK, bindaddr, bindport);
+	udpsrv.fd = usock(USOCK_UDP | USOCK_SERVER | USOCK_NONBLOCK | USOCK_NUMERIC, bindaddr, bindport);
 	if (udpsrv.fd < 0) {
 		L_ERR("Unable to bind UDP DNS-socket %s/%s: %s", bindaddr, bindport, strerror(errno));
 		return 2;
 	}
 
-	tcpsrv.fd = usock(USOCK_TCP | USOCK_SERVER | USOCK_NONBLOCK, bindaddr, bindport);
+	tcpsrv.fd = usock(USOCK_TCP | USOCK_SERVER | USOCK_NONBLOCK | USOCK_NUMERIC, bindaddr, bindport);
 	if (tcpsrv.fd < 0) {
 		L_ERR("Unable to bind TCP DNS-socket %s/%s: %s", bindaddr, bindport, strerror(errno));
 		return 2;
