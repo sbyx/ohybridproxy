@@ -18,8 +18,8 @@
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <fcntl.h>
 
-#include <libubox/usock.h>
 #include <libubox/utils.h>
 #include <libubox/ustream.h>
 
@@ -243,31 +243,73 @@ void show_help(const char *prog)
 		" and handled on the interface. Reverse queries are attempted on all interfaces.\n");
 }
 
+/* not-usock; glibc getaddrinfo is evil, or at least, potentially
+ * broken every now and then (e.g. numeric IP + serv => still does
+ * lookups all over the place. which can fail). */
+
+int nusock(const char *host, int port, int t)
+{
+	int s;
+	int on = 1;
+	struct sockaddr_storage ss;
+	struct sockaddr_in *sin = (struct sockaddr_in *)&ss;
+	struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&ss;
+	int ss_len;
+	int pf = -1;
+
+	memset(&ss, 0, sizeof(ss));
+	if (inet_pton(AF_INET, host, &sin->sin_addr)) {
+		sin->sin_family = AF_INET;
+		sin->sin_port = htons(port);
+		ss_len = sizeof(*sin);
+		pf = AF_INET;
+	} else if (inet_pton(AF_INET6, host, &sin6->sin6_addr)) {
+		sin6->sin6_family = AF_INET6;
+		sin6->sin6_port = htons(port);
+		ss_len = sizeof(*sin6);
+		pf = AF_INET6;
+	} else {
+		L_ERR("unable to parse:%s", host);
+		return -1;
+	}
+	s = socket(pf, t, 0);
+	if (s < 0)
+		perror("socket");
+	else if (fcntl(s, F_SETFL, O_NONBLOCK) < 0)
+		perror("fnctl O_NONBLOCK");
+	else if (port
+		 && setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0)
+		perror("setsockopt SO_REUSEADDR");
+	else if (bind(s, (struct sockaddr *)&ss, ss_len) < 0)
+		perror("bind");
+	else if (t == SOCK_STREAM && listen(s, 1) < 0)
+		perror("listen");
+	else
+		return s;
+	return -1;
+}
 
 int main(int argc, char *const argv[])
 {
 	const char *prog = argv[0];
 	int c, i;
 	const char *bindaddr = NULL;
-	const char *bindport = "53";
-	int flags = USOCK_SERVER | USOCK_NONBLOCK | USOCK_NUMERIC;
+	int bindport = 53;
 
 	openlog("ohybridproxy", LOG_PERROR | LOG_PID, LOG_DAEMON);
 	uloop_init();
 	while ((c = getopt(argc, argv, "46a:p:h")) != -1) {
 		switch (c) {
 		case '4':
-			flags |= USOCK_IPV4ONLY;
-			break;
 		case '6':
-			flags |= USOCK_IPV6ONLY;
+			/* Ignored for now */
 			break;
 		case 'a':
 			bindaddr = optarg;
 			break;
 
 		case 'p':
-			bindport = optarg;
+			bindport = atoi(optarg);
 			break;
 
 		default:
@@ -283,15 +325,15 @@ help:
 		show_help(prog);
 		return 1;
 	}
-	udpsrv.fd = usock(USOCK_UDP | flags, bindaddr, bindport);
+	udpsrv.fd = nusock(bindaddr, bindport, SOCK_DGRAM);
 	if (udpsrv.fd < 0) {
-		L_ERR("Unable to bind UDP DNS-socket %s/%s: %s", bindaddr, bindport, strerror(errno));
+		L_ERR("Unable to bind UDP DNS-socket %s/%d: %s", bindaddr, bindport, strerror(errno));
 		return 2;
 	}
 
-	tcpsrv.fd = usock(USOCK_TCP | flags, bindaddr, bindport);
+	tcpsrv.fd = nusock(bindaddr, bindport, SOCK_STREAM);
 	if (tcpsrv.fd < 0) {
-		L_ERR("Unable to bind TCP DNS-socket %s/%s: %s", bindaddr, bindport, strerror(errno));
+		L_ERR("Unable to bind TCP DNS-socket %s/%d: %s", bindaddr, bindport, strerror(errno));
 		return 2;
 	}
 
