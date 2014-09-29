@@ -250,11 +250,18 @@ int main(int argc, char *const argv[])
 	int c, i;
 	const char *bindaddr = NULL;
 	const char *bindport = "53";
+	int flags = USOCK_SERVER | USOCK_NONBLOCK | USOCK_NUMERIC;
 
 	openlog("ohybridproxy", LOG_PERROR | LOG_PID, LOG_DAEMON);
 	uloop_init();
-	while ((c = getopt(argc, argv, "a:p:h")) != -1) {
+	while ((c = getopt(argc, argv, "46a:p:h")) != -1) {
 		switch (c) {
+		case '4':
+			flags |= USOCK_IPV4ONLY;
+			break;
+		case '6':
+			flags |= USOCK_IPV6ONLY;
+			break;
 		case 'a':
 			bindaddr = optarg;
 			break;
@@ -276,13 +283,13 @@ help:
 		show_help(prog);
 		return 1;
 	}
-	udpsrv.fd = usock(USOCK_UDP | USOCK_SERVER | USOCK_NONBLOCK | USOCK_NUMERIC, bindaddr, bindport);
+	udpsrv.fd = usock(USOCK_UDP | flags, bindaddr, bindport);
 	if (udpsrv.fd < 0) {
 		L_ERR("Unable to bind UDP DNS-socket %s/%s: %s", bindaddr, bindport, strerror(errno));
 		return 2;
 	}
 
-	tcpsrv.fd = usock(USOCK_TCP | USOCK_SERVER | USOCK_NONBLOCK | USOCK_NUMERIC, bindaddr, bindport);
+	tcpsrv.fd = usock(USOCK_TCP | flags, bindaddr, bindport);
 	if (tcpsrv.fd < 0) {
 		L_ERR("Unable to bind TCP DNS-socket %s/%s: %s", bindaddr, bindport, strerror(errno));
 		return 2;
