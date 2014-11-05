@@ -58,7 +58,7 @@ int main(int argc, char **argv)
       exit(1);
     }
   d2m_req_add_query(&r, argv[2],
-                    argc > 3 ? atoi(argv[3]) : kDNSServiceType_ANY);
+                    argc > 3 ? atoi(argv[3]) : DNS_TYPE_ANY);
   d2m_req_start(&r);
   L_INFO("Entering event loop");
   uloop_run();

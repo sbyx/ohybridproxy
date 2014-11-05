@@ -88,7 +88,7 @@ static bool ohp_parse_request(struct ohp_request *req, const uint8_t *buf, size_
 	if (ntohs(hdr[2]) != 1 || hdr[3] || hdr[4])
 		return false;
 
-	char domain[kDNSServiceMaxDomainName];
+	char domain[MAXIMUM_DOMAIN_NAME];
 	int complen = ll2escaped(question, eom - question, domain, sizeof(domain));
 	const uint8_t *opt = &question[complen + 4]; // Point to next RR (should be OPT or EOM)
 	if (complen <= 0 || opt > eom)
@@ -358,6 +358,7 @@ help:
 		}
 	}
 
+	d2m_start();
 	uloop_run();
 	return 0;
 }

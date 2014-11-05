@@ -16,7 +16,10 @@
 
 #include <libubox/list.h>
 #include <libubox/uloop.h>
+
+#ifdef USE_MDNSRESPONDER
 #include <dns_sd.h>
+#endif
 
 #include "dns_proto.h"
 
@@ -28,6 +31,22 @@
  * MDNS operates on sub-second speed, and some DNS clients starts
  * resending at second. Sigh. */
 #define MAXIMUM_REQUEST_DURATION_IN_MS 500
+
+/* Maximum domain name */
+#define MAXIMUM_DOMAIN_NAME 1024
+
+/* DNS constants */
+#define DNS_CLASS_IN	1
+
+enum {
+	DNS_TYPE_A = 1,
+	DNS_TYPE_PTR = 12,
+	DNS_TYPE_TXT = 16,
+	DNS_TYPE_AAAA = 28,
+	DNS_TYPE_SRV = 33,
+	DNS_TYPE_ANY = 255,
+};
+
 
 typedef struct ohp_rr {
   struct list_head head;
@@ -116,6 +135,13 @@ void d2m_req_stop(ohp_request req);
  * happens automatically) to the request processing logic.
  */
 int d2m_add_interface(const char *ifname, const char *domain);
+
+
+/*
+ * Prepare dns2mdns engine
+ */
+void d2m_start(void);
+
 
 /* Add query (if it does not already exist). */
 struct ohp_query *d2m_req_add_query(ohp_request req, const char *query, uint16_t qtype);

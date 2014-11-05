@@ -13,6 +13,7 @@
  */
 
 #include <stdlib.h>
+#include <unistd.h>
 #include <net/if.h>
 
 #include "dns2mdns.h"
@@ -36,7 +37,7 @@ typedef struct d2m_interface_struct {
   int to_dns_delta;
 
   /* Domain assigned to the interface. */
-  char domain[kDNSServiceMaxDomainName];
+  char domain[MAXIMUM_DOMAIN_NAME];
 
   /* Actual interface - name + index. */
   char ifname[IFNAMSIZ];
@@ -44,15 +45,23 @@ typedef struct d2m_interface_struct {
 } *d2m_interface;
 
 static struct list_head interfaces = LIST_HEAD_INIT(interfaces);
+static int _query_start(struct ohp_query *q);
+static int _query_stop(struct ohp_query *q);
+static void _req_send(ohp_request req);
 
+static __unused void _state_reset()
+{
+  /* First off, clear the active requests */
+  ohp_request r, nr;
+  list_for_each_entry_safe(r, nr, &active_ohp_requests, lh)
+    d2m_req_stop(r);
+}
+
+#ifdef USE_MDNSRESPONDER
 typedef struct d2m_conn_struct {
   DNSServiceRef service;
   struct uloop_fd fd;
 } *d2m_conn;
-
-static int _query_start(struct ohp_query *q);
-static int _query_stop(struct ohp_query *q);
-static void _req_send(ohp_request req);
 
 static void _conn_free(d2m_conn c)
 {
@@ -66,14 +75,6 @@ static void _conn_free(d2m_conn c)
       DNSServiceRefDeallocate(c->service);
     }
   free(c);
-}
-
-static void _state_reset()
-{
-  /* First off, clear the active requests */
-  ohp_request r, nr;
-  list_for_each_entry_safe(r, nr, &active_ohp_requests, lh)
-    d2m_req_stop(r);
 }
 
 static void
@@ -108,6 +109,15 @@ static void _conn_register(d2m_conn conn)
       (void)uloop_fd_add(&conn->fd, ULOOP_READ);
     }
 }
+#else
+
+#include <arpa/inet.h>
+#include <libubus.h>
+static struct ubus_context *ubus = NULL;
+uint32_t ubus_objid = 0;
+struct blob_buf ubus_buf = {NULL, NULL, 0, NULL};
+
+#endif
 
 static bool
 _string_endswith(const char *s, const char *end)
@@ -195,6 +205,7 @@ _query_add_rr(ohp_query q, const char *name, dns_rr drr, const void *rdata)
   return rr;
 }
 
+#ifdef USE_MDNSRESPONDER
 static void
 _service_callback(DNSServiceRef service __unused,
                   DNSServiceFlags flags,
@@ -223,7 +234,7 @@ _service_callback(DNSServiceRef service __unused,
       L_INFO("non-add _service_callback ignored for now (no LLQ)");
       return;
     }
-  if (rrclass != kDNSServiceClass_IN)
+  if (rrclass != DNS_CLASS_IN)
     {
       L_INFO("ignoring weird service class %d", rrclass);
       return;
@@ -260,13 +271,13 @@ _service_callback(DNSServiceRef service __unused,
    */
   switch (rrtype)
     {
-    case kDNSServiceType_PTR:
+    case DNS_TYPE_PTR:
       /* Inverse PTRs are typically unique (and lack SRV/TXT of interest). */
       if (_string_endswith(name, ".arpa."))
         probably_cf = true;
       else
         {
-          char buf[kDNSServiceMaxDomainName];
+          char buf[MAXIMUM_DOMAIN_NAME];
 
           /* The relevant name is the only content of ptr. */
           if (ll2escaped(rdata, rdlen, buf, sizeof(buf))<0)
@@ -277,15 +288,15 @@ _service_callback(DNSServiceRef service __unused,
           const char *qb = TO_DNS(q->request->interface, buf);
           if (!qb)
             return;
-          if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_SRV)))
+          if ((nq = d2m_req_add_query(q->request, qb, DNS_TYPE_SRV)))
             _query_start(nq);
-          if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_TXT)))
+          if ((nq = d2m_req_add_query(q->request, qb, DNS_TYPE_TXT)))
             _query_start(nq);
         }
       break;
-    case kDNSServiceType_SRV:
+    case DNS_TYPE_SRV:
       {
-        char buf[kDNSServiceMaxDomainName];
+        char buf[MAXIMUM_DOMAIN_NAME];
         /* The relevant name is the only content of ptr. */
         int srv_header_size = sizeof(struct dns_rdata_srv);
         if (ll2escaped(rdata + srv_header_size, rdlen - srv_header_size,
@@ -297,20 +308,20 @@ _service_callback(DNSServiceRef service __unused,
         const char *qb = TO_DNS(q->request->interface, buf);
         if (!qb)
             return;
-        if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_AAAA)))
+        if ((nq = d2m_req_add_query(q->request, qb, DNS_TYPE_AAAA)))
           _query_start(nq);
-        if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_A)))
+        if ((nq = d2m_req_add_query(q->request, qb, DNS_TYPE_A)))
           _query_start(nq);
       }
       probably_cf = true;
       break;
-    case kDNSServiceType_A:
+    case DNS_TYPE_A:
       if (rdlen != 4 || (rbytes[0] == 169 && rbytes[1] == 254))
           return;
       probably_cf = true;
       break;
 
-    case kDNSServiceType_AAAA:
+    case DNS_TYPE_AAAA:
       if (rdlen != 16 || (rbytes[0] == 0xfe && (rbytes[1] & 0xc0) == 0x80))
           return;
       probably_cf = true;
@@ -330,12 +341,138 @@ _service_callback(DNSServiceRef service __unused,
       && !(flags & kDNSServiceFlagsMoreComing))
     _query_stop(q);
 }
+#else
+
+enum {
+	MDNS_NAME,
+	MDNS_TYPE,
+	MDNS_TTL,
+	MDNS_DATA,
+	MDNS_PRIORITY,
+	MDNS_WEIGHT,
+	MDNS_PORT,
+	MDNS_TARGET,
+	MDNS_MAX
+};
+
+static const struct blobmsg_policy mdns_policy[MDNS_MAX] = {
+	[MDNS_NAME]		= { "name", BLOBMSG_TYPE_STRING },
+	[MDNS_TYPE]		= { "type", BLOBMSG_TYPE_STRING },
+	[MDNS_TTL]		= { "ttl", BLOBMSG_TYPE_INT32 },
+	[MDNS_DATA]		= { "data", BLOBMSG_TYPE_ARRAY },
+	[MDNS_PRIORITY]	= { "priority", BLOBMSG_TYPE_INT32 },
+	[MDNS_WEIGHT]	= { "weight", BLOBMSG_TYPE_INT32 },
+	[MDNS_PORT]		= { "port", BLOBMSG_TYPE_INT32 },
+	[MDNS_TARGET]	= { "target", BLOBMSG_TYPE_STRING },
+};
+
+static void _ubus_handle(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct ohp_query *q = req->priv;
+	struct dns_rr drr;
+	uint8_t buf[4096];
+	char name[MAXIMUM_DOMAIN_NAME];
+
+	if (type != UBUS_MSG_DATA)
+		return;
+
+	struct blob_attr *b, *c;
+	unsigned rem, rem2;
+	blob_for_each_attr(b, msg, rem) {
+		if (blobmsg_type(b) != BLOBMSG_TYPE_ARRAY || strcmp(blobmsg_name(b), "records"))
+			continue;
+
+		blobmsg_for_each_attr(c, b, rem2) {
+			if (blobmsg_type(c) != BLOBMSG_TYPE_TABLE)
+				continue;
+
+			struct blob_attr *tb[MDNS_MAX];
+			blobmsg_parse(mdns_policy, MDNS_MAX, tb, blobmsg_data(c), blobmsg_data_len(c));
+
+			if (!tb[MDNS_NAME] || !tb[MDNS_TYPE] || !tb[MDNS_TTL])
+				continue;
+
+			const char *type = blobmsg_get_string(tb[MDNS_TYPE]);
+			const char *target = tb[MDNS_TARGET] ? blobmsg_get_string(tb[MDNS_TARGET]) : NULL;
+
+			if (!strcmp(type, "TXT") && tb[MDNS_DATA]) {
+				uint8_t *cbuf = buf;
+				struct blob_attr *t;
+				unsigned rem3;
+				blobmsg_for_each_attr(t, c, rem3) {
+					int len = blobmsg_data_len(t) - 1;
+					if (blobmsg_type(t) != BLOBMSG_TYPE_STRING ||
+							len > UINT8_MAX || cbuf - buf + len + 1 > (int)sizeof(buf))
+						continue;
+
+					*cbuf++ = len;
+					memcpy(cbuf, blobmsg_get_string(t), len);
+					cbuf += len;
+				}
+
+				drr.rrtype = DNS_TYPE_TXT;
+				drr.rdlen = cbuf - buf;
+			} else if (!strcmp(type, "SRV") && target &&
+					tb[MDNS_PRIORITY] && tb[MDNS_WEIGHT] && tb[MDNS_PORT]) {
+				drr.rrtype = DNS_TYPE_SRV;
+				buf[0] = blobmsg_get_u32(tb[MDNS_PRIORITY]) >> 8;
+				buf[1] = blobmsg_get_u32(tb[MDNS_PRIORITY]);
+				buf[2] = blobmsg_get_u32(tb[MDNS_WEIGHT]) >> 8;
+				buf[3] = blobmsg_get_u32(tb[MDNS_WEIGHT]);
+				buf[4] = blobmsg_get_u32(tb[MDNS_PORT]) >> 8;
+				buf[5] = blobmsg_get_u32(tb[MDNS_PORT]);
+
+				int len = escaped2ll(target, &buf[6], sizeof(buf) - 7);
+				drr.rdlen = 7 + len;
+				buf[6 + len] = 0;
+			} else if (!strcmp(type, "PTR") && target) {
+				drr.rrtype = DNS_TYPE_PTR;
+
+				int len = escaped2ll(target, buf, sizeof(buf) - 1);
+				drr.rdlen = 1 + len;
+				buf[len] = 0;
+			} else if (!strcmp(type, "A") && target) {
+				drr.rrtype = DNS_TYPE_A;
+				drr.rdlen = sizeof(struct in_addr);
+				inet_pton(AF_INET, target, buf);
+			} else if (!strcmp(type, "AAAA") && target) {
+				drr.rrtype = DNS_TYPE_AAAA;
+				drr.rdlen = sizeof(struct in6_addr);
+				inet_pton(AF_INET6, target, buf);
+			} else {
+				continue;
+			}
+
+			drr.rrclass = DNS_CLASS_IN;
+			drr.ttl = blobmsg_get_u32(tb[MDNS_TTL]);
+
+			snprintf(name, sizeof(name), "%s.", blobmsg_get_string(tb[MDNS_NAME]));
+			_query_add_rr(q, name, &drr, buf);
+		}
+	}
+}
+
+static void _ubus_call(const char *question, const char *ifname, int type, struct ohp_query *q)
+{
+	blob_buf_init(&ubus_buf, 0);
+
+	blobmsg_add_string(&ubus_buf, "interface", ifname);
+	blobmsg_add_u32(&ubus_buf, "type", type);
+
+	size_t len = strlen(question);
+	char *c = blobmsg_alloc_string_buffer(&ubus_buf, "question", len);
+	memcpy(c, question, len - 1);
+	c[len - 1] = 0;
+	blobmsg_add_string_buffer(&ubus_buf);
+
+	ubus_invoke(ubus, ubus_objid, (q) ? "fetch" : "query", ubus_buf.head,
+			(q) ? _ubus_handle : NULL, q, 1000);
+}
+
+#endif
 
 static int _query_start(ohp_query q)
 {
-  int flags = kDNSServiceFlagsForceMulticast;
-  int ifindex;
-  int err;
   d2m_interface ifo = NULL, ip;
   const char *qb = q->query;
 
@@ -408,13 +545,18 @@ static int _query_start(ohp_query q)
     }
   if (ifo)
     qb = TO_MDNS(ifo, q->query);
+
+#ifdef USE_MDNSRESPONDER
+  int ifindex;
+  int err;
   ifindex = ifo ? ifo->ifindex : 0;
   q->conn = calloc(1, sizeof(*q->conn));
   if (!q->conn)
     goto done;
   L_DEBUG("DNSServiceQueryRecord %s @ %d", qb, ifindex);
-  if ((err = DNSServiceQueryRecord(&q->conn->service, flags, ifindex,
-                                   qb,
+  if ((err = DNSServiceQueryRecord(&q->conn->service,
+                                   kDNSServiceFlagsForceMulticast,
+								   ifindex, qb,
                                    q->dq.qtype,
                                    q->dq.qclass,
                                    _service_callback,
@@ -424,8 +566,17 @@ static int _query_start(ohp_query q)
       goto done;
     }
   _conn_register(q->conn);
+#else
+  if (ifo) {
+	  _ubus_call(qb, ifo->ifname, q->dq.qtype, NULL);
+  } else {
+	  list_for_each_entry(ip, &interfaces, head)
+		_ubus_call(q->query, ip->ifname, q->dq.qtype, NULL);
+  }
+#endif
   q->request->running++;
   return 0;
+
  done:
   if (!q->request->running)
     {
@@ -444,8 +595,9 @@ static void _req_send(ohp_request req)
   ohp_send_reply(req);
 }
 
-static int _query_stop(ohp_query q)
+static int _query_stop(__unused ohp_query q)
 {
+#ifdef USE_MDNSRESPONDER
   if (q->conn && q->conn->service)
     {
       DNSServiceRefDeallocate(q->conn->service);
@@ -456,6 +608,7 @@ static int _query_stop(ohp_query q)
           return -1;
         }
     }
+#endif
   return 0;
 }
 
@@ -465,7 +618,24 @@ static void _request_timeout(struct uloop_timeout *t)
 
   /* Just call stop, it will call send eventually if it already hasn't. */
   L_DEBUG("_request_timeout");
+#ifndef USE_MDNSRESPONDER
+  if (!list_empty(&req->queries)) {
+	  struct ohp_query *q = list_first_entry(&req->queries, struct ohp_query, head);
+	  if (req->interface) {
+		  const char *qb = TO_MDNS(req->interface, q->query);
+		  _ubus_call(qb, req->interface->ifname, q->dq.qtype, q);
+	  } else if (_string_endswith(q->query, ".arpa.")) {
+		  d2m_interface ip;
+		  list_for_each_entry(ip, &interfaces, head)
+		  	_ubus_call(q->query, ip->ifname, q->dq.qtype, q);
+	  }
+	  _req_send(req);
+  } else {
+	  d2m_req_stop(req);
+  }
+#else
   d2m_req_stop(req);
+#endif
 }
 
 void d2m_req_start(ohp_request req)
@@ -512,7 +682,7 @@ static int _add_interface(const char *ifname, uint32_t ifindex,
 {
   d2m_interface ifo;
     /* Normalize the domain by encoding it to ll and back. */
-  uint8_t buf[kDNSServiceMaxDomainName];
+  uint8_t buf[MAXIMUM_DOMAIN_NAME];
   int r;
 
   ifo = calloc(1, sizeof(*ifo));
@@ -528,7 +698,7 @@ static int _add_interface(const char *ifname, uint32_t ifindex,
       return -1;
     }
   L_DEBUG(" escaped2ll = %d", r);
-  if ((r = ll2escaped(buf, r, ifo->domain, kDNSServiceMaxDomainName)) < 0)
+  if ((r = ll2escaped(buf, r, ifo->domain, MAXIMUM_DOMAIN_NAME)) < 0)
     {
       L_ERR("ll2escaped failed for %s", domain);
       return -1;
@@ -551,7 +721,30 @@ int d2m_add_interface(const char *ifname, const char *domain)
       L_ERR("invalid interface:%s", ifname);
       return -1;
     }
+
   return _add_interface(ifname, ifindex, domain);
+}
+
+void d2m_start(void)
+{
+#ifndef USE_MDNSRESPONDER
+  while (!(ubus = ubus_connect(NULL)))
+    sleep(1);
+
+  ubus_add_uloop(ubus);
+  while (ubus_lookup_id(ubus, "mdns", &ubus_objid))
+    sleep(1);
+
+  blob_buf_init(&ubus_buf, 0);
+  void *k = blobmsg_open_array(&ubus_buf, "interfaces");
+
+  d2m_interface ip;
+  list_for_each_entry(ip, &interfaces, head)
+  	  blobmsg_add_string(&ubus_buf, NULL, ip->ifname);
+
+  blobmsg_close_array(&ubus_buf, k);
+  ubus_invoke(ubus, ubus_objid, "set_config", ubus_buf.head, NULL, NULL, 1000);
+#endif
 }
 
 
@@ -571,7 +764,7 @@ d2m_req_add_query(ohp_request req, const char *query, uint16_t qtype)
       uint16_t oqtype = q->dq.qtype;
       if (strcmp(q->query, query) == 0
           && (oqtype == qtype
-              || oqtype == kDNSServiceType_ANY))
+              || oqtype == DNS_TYPE_ANY))
         {
           L_DEBUG(" .. but it already exists");
           return NULL;
@@ -587,7 +780,7 @@ d2m_req_add_query(ohp_request req, const char *query, uint16_t qtype)
       return NULL;
     }
   q->dq.qtype = qtype;
-  q->dq.qclass = kDNSServiceClass_IN;
+  q->dq.qclass = DNS_CLASS_IN;
   q->request = req;
   INIT_LIST_HEAD(&q->rrs);
   list_add_tail(&q->head, &req->queries);
@@ -603,7 +796,9 @@ static void _rr_free(ohp_rr rr)
 
 static void _query_free(ohp_query q)
 {
+#ifdef USE_MDNSRESPONDER
   _conn_free(q->conn);
+#endif
   list_del(&q->head);
   while (!list_empty(&q->rrs))
     _rr_free(list_first_entry(&q->rrs, struct ohp_rr, head));
@@ -751,7 +946,7 @@ static int _produce_reply_push_rr(ohp_query q,
 
   switch (rr->drr.rrtype)
     {
-    case kDNSServiceType_SRV:
+    case DNS_TYPE_SRV:
       /* From our point of view, SRV is just PTR with funny 8 byte
        * header at start. */
       {
@@ -762,9 +957,9 @@ static int _produce_reply_push_rr(ohp_query q,
         slen -= sizeof(*srv);
       }
       /* Intentional fall-through to label handling in PTR. */
-    case kDNSServiceType_PTR:
+    case DNS_TYPE_PTR:
       {
-        char dbuf[kDNSServiceMaxDomainName];
+        char dbuf[MAXIMUM_DOMAIN_NAME];
 
         /* The relevant name is the only content of ptr. */
         if ((r = ll2escaped(sbuf, slen, dbuf, sizeof(dbuf)))<0)
