@@ -293,7 +293,7 @@ int main(int argc, char *const argv[])
 {
 	const char *prog = argv[0];
 	int c, i;
-	const char *bindaddr = NULL;
+	const char *bindaddr = "::";
 	int bindport = 53;
 
 	openlog("ohybridproxy", LOG_PERROR | LOG_PID, LOG_DAEMON);
