@@ -725,6 +725,28 @@ int d2m_add_interface(const char *ifname, const char *domain)
   return _add_interface(ifname, ifindex, domain);
 }
 
+#ifndef USE_MDNSRESPONDER
+static int handle_set_config(__unused struct ubus_context *ctx, __unused struct ubus_object *obj,
+		__unused struct ubus_request_data *req, const char *method,
+		__unused struct blob_attr *msg)
+{
+  if (!strcmp(method, "set_config")) {
+	blob_buf_init(&ubus_buf, 0);
+	blobmsg_add_u8(&ubus_buf, "keep", true);
+	void *k = blobmsg_open_array(&ubus_buf, "interfaces");
+
+	d2m_interface ip;
+	list_for_each_entry(ip, &interfaces, head)
+	  blobmsg_add_string(&ubus_buf, NULL, ip->ifname);
+
+	blobmsg_close_array(&ubus_buf, k);
+	ubus_invoke(ubus, ubus_objid, "set_config", ubus_buf.head, NULL, NULL, 1000);
+  }
+  return UBUS_STATUS_OK;
+}
+static struct ubus_subscriber mdnsd = { .cb = handle_set_config };
+#endif
+
 void d2m_start(void)
 {
 #ifndef USE_MDNSRESPONDER
@@ -735,15 +757,10 @@ void d2m_start(void)
   while (ubus_lookup_id(ubus, "mdns", &ubus_objid))
     sleep(1);
 
-  blob_buf_init(&ubus_buf, 0);
-  void *k = blobmsg_open_array(&ubus_buf, "interfaces");
+  ubus_register_subscriber(ubus, &mdnsd);
+  ubus_subscribe(ubus, &mdnsd, ubus_objid);
 
-  d2m_interface ip;
-  list_for_each_entry(ip, &interfaces, head)
-  	  blobmsg_add_string(&ubus_buf, NULL, ip->ifname);
-
-  blobmsg_close_array(&ubus_buf, k);
-  ubus_invoke(ubus, ubus_objid, "set_config", ubus_buf.head, NULL, NULL, 1000);
+  handle_set_config(NULL, NULL, NULL, "set_config", NULL);
 #endif
 }
 
