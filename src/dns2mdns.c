@@ -7,8 +7,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Fri Sep 11 13:26:28 2015 mstenber
- * Edit time:     61 min
+ * Last modified: Fri Sep 11 13:39:53 2015 mstenber
+ * Edit time:     71 min
  *
  */
 
@@ -386,19 +386,15 @@ void b_query_stop(io_query ioq)
 {
   ohp_query q = ioq->b_private;
 
-  if (!q->conn)
-    return;
   _conn_free(q->conn);
   q->conn = NULL;
 }
 
-void b_req_start(io_request ioreq __unused)
+void b_query_free(io_query ioq)
 {
+  ohp_query q = ioq->b_private;
 
-}
-
-void b_req_stop(io_request ioreq __unused)
-{
+  free(q);
 }
 
 static int _add_interface(const char *ifname, uint32_t ifindex,

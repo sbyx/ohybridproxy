@@ -107,12 +107,12 @@ void io_req_free(io_request req);
 
 /************************************************** IO -> Backend API (X.c)  */
 
-/* Start/stop processing of a request. */
-void b_req_start(io_request req);
-void b_req_stop(io_request req);
-
+/* Start/stop processing of a query. */
 bool b_query_start(io_query q);
 void b_query_stop(io_query q);
+
+/* Free the b_private, if any */
+void b_query_free(io_query q);
 
 /* All queries are done */
 void b_queries_done(io_request req);

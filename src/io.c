@@ -74,6 +74,7 @@ static void _rr_free(io_rr rr)
 
 static void _query_free(io_query q)
 {
+  b_query_free(q);
   list_del(&q->head);
   while (!list_empty(&q->rrs))
     _rr_free(list_first_entry(&q->rrs, struct io_rr, head));
@@ -118,8 +119,6 @@ void io_req_stop(io_request req)
   /* Cancel the timeout if we already didn't fire it. */
   uloop_timeout_cancel(&req->timeout);
 
-  b_req_stop(req);
-
   /* Stop the sub-queries. */
   list_for_each_entry(q, &req->queries, head)
     if (!io_query_stop(q))
@@ -135,7 +134,6 @@ void io_req_start(io_request req)
   if (maximum_duration)
     uloop_timeout_set(&req->timeout, maximum_duration);
   req->timeout.cb = _request_timeout;
-  b_req_start(req);
   list_for_each_entry(q, &req->queries, head)
     if (!io_query_start(q))
       return;
