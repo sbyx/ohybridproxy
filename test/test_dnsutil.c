@@ -6,14 +6,14 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 13:01:23 2014 mstenber
- * Last modified: Mon Feb 10 09:19:38 2014 mstenber
+ * Last modified: Fri Sep 11 11:27:14 2015 mstenber
  * Edit time:     47 min
  *
  */
 
 #define L_LEVEL 7
 
-#include "ohybridproxy.h"
+#include "util.h"
 #include "dns_util.h"
 #include "sput.h"
 

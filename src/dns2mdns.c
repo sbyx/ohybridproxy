@@ -7,8 +7,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Thu Jun 12 15:34:21 2014 mstenber
- * Edit time:     0 min
+ * Last modified: Fri Sep 11 11:38:39 2015 mstenber
+ * Edit time:     13 min
  *
  */
 
@@ -16,7 +16,7 @@
 #include <net/if.h>
 
 #include "dns2mdns.h"
-#include "ohybridproxy.h"
+#include "io.h"
 #include "dns_proto.h"
 #include "dns_util.h"
 
@@ -67,6 +67,8 @@ static void _conn_free(d2m_conn c)
     }
   free(c);
 }
+
+static void d2m_req_stop(ohp_request req);
 
 static void _state_reset()
 {
@@ -277,9 +279,9 @@ _service_callback(DNSServiceRef service __unused,
           const char *qb = TO_DNS(q->request->interface, buf);
           if (!qb)
             return;
-          if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_SRV)))
+          if ((nq = b_req_add_query(q->request->io, qb, kDNSServiceType_SRV)))
             _query_start(nq);
-          if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_TXT)))
+          if ((nq = b_req_add_query(q->request->io, qb, kDNSServiceType_TXT)))
             _query_start(nq);
         }
       break;
@@ -297,9 +299,9 @@ _service_callback(DNSServiceRef service __unused,
         const char *qb = TO_DNS(q->request->interface, buf);
         if (!qb)
             return;
-        if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_AAAA)))
+        if ((nq = b_req_add_query(q->request->io, qb, kDNSServiceType_AAAA)))
           _query_start(nq);
-        if ((nq = d2m_req_add_query(q->request, qb, kDNSServiceType_A)))
+        if ((nq = b_req_add_query(q->request->io, qb, kDNSServiceType_A)))
           _query_start(nq);
       }
       probably_cf = true;
@@ -440,8 +442,8 @@ static void _req_send(ohp_request req)
   if (req->sent)
     return;
   req->sent = true;
-  L_DEBUG("calling d2m_req_send for %p", req);
-  ohp_send_reply(req);
+  L_DEBUG("calling b_req_send for %p", req);
+  io_send_reply(req->io);
 }
 
 static int _query_stop(ohp_query q)
@@ -468,11 +470,12 @@ static void _request_timeout(struct uloop_timeout *t)
   d2m_req_stop(req);
 }
 
-void d2m_req_start(ohp_request req)
+void b_req_start(io_request ioreq)
 {
+  ohp_request req = ioreq->b_private;
   ohp_query q;
 
-  L_DEBUG("d2m_req_start %p", req);
+  L_DEBUG("b_req_start %p", req);
 
   /* In case of instant failure, we don't want query-start triggered
    * code to have incomplete request structure -> we set things
@@ -488,7 +491,7 @@ void d2m_req_start(ohp_request req)
     }
 }
 
-void d2m_req_stop(ohp_request req)
+static void d2m_req_stop(ohp_request req)
 {
   ohp_query q;
 
@@ -505,6 +508,11 @@ void d2m_req_stop(ohp_request req)
   list_for_each_entry(q, &req->queries, head)
     if (_query_stop(q))
       return;
+}
+
+void b_req_stop(io_request ioreq)
+{
+  d2m_req_stop(ioreq->b_private);
 }
 
 static int _add_interface(const char *ifname, uint32_t ifindex,
@@ -556,8 +564,9 @@ int d2m_add_interface(const char *ifname, const char *domain)
 
 
 ohp_query
-d2m_req_add_query(ohp_request req, const char *query, uint16_t qtype)
+b_req_add_query(io_request ioreq, const char *query, uint16_t qtype)
 {
+  ohp_request req = ioreq->b_private;
   ohp_query q;
 
   /* Determine if it's uninitialized. */
@@ -611,8 +620,17 @@ static void _query_free(ohp_query q)
   free(q);
 }
 
-void d2m_req_free(ohp_request req)
+void b_req_init(io_request ioreq)
 {
+  ohp_request req = calloc(1, sizeof(*req));
+  ioreq->b_private = req;
+  req->io = ioreq;
+}
+
+void b_req_free(io_request ioreq)
+{
+  ohp_request req = ioreq->b_private;
+
   /* Free shouldn't trigger send. */
   req->sent = true;
 
@@ -622,6 +640,9 @@ void d2m_req_free(ohp_request req)
   /* Free contents. */
   while (!list_empty(&req->queries))
     _query_free(list_first_entry(&req->queries, struct ohp_query, head));
+
+  /* Free private data itself */
+  free(req);
 }
 
 static void _init_deduplicate(uint8_t *saved[], size_t saved_max, void *msghdr)
@@ -788,9 +809,10 @@ static int _produce_reply_push_rr(ohp_query q,
   return DNS_RESULT_OOB;
 }
 
-int d2m_produce_reply(ohp_request req,
-                      uint8_t *buf, int buf_len)
+int b_produce_reply(io_request ioreq,
+                    uint8_t *buf, int buf_len)
 {
+  ohp_request req = ioreq->b_private;
   uint8_t *obuf = buf;
   ohp_query q;
   ohp_rr rr;
@@ -806,7 +828,7 @@ int d2m_produce_reply(ohp_request req,
   PUSH(msg);
   memset(msg, 0, sizeof(*msg));
   msg->h = DNS_H_QR | DNS_H_AA;
-  msg->id = req->dnsid;
+  msg->id = ioreq->dnsid;
   /* XXX - should we copy RD from original message like Lua code does?
    * why does it do that? hmm. */
   list_for_each_entry(q, &req->queries, head)

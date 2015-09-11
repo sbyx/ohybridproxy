@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:30:07 2014 mstenber
- * Last modified: Mon Mar 31 13:28:05 2014 mstenber
- * Edit time:     71 min
+ * Last modified: Fri Sep 11 11:34:47 2015 mstenber
+ * Edit time:     78 min
  *
  */
 
@@ -20,7 +20,7 @@
 
 #define L_LEVEL 7
 
-#include "ohybridproxy.h"
+#include "util.h"
 #include "sput.h"
 #include "smock.h"
 
@@ -78,17 +78,19 @@ void check_reply_range(struct ohp_request *req, int r1, int r2)
   for (i = r1 ; i < r2 ; i++)
     {
       buf[i+1] = 42;
-      r = d2m_produce_reply(req, buf, i);
+      r = b_produce_reply(req->io, buf, i);
       sput_fail_unless(r == r1, "same result");
       sput_fail_unless(buf[i+1] == 42, "canary alive");
     }
 }
 
-void ohp_send_reply(struct ohp_request *req)
+void io_send_reply(io_request ioreq)
 {
+  ohp_request req = ioreq->b_private;
+
   smock_pull("ohpsr");
   uint8_t buf[512];
-  int or, r = d2m_produce_reply(req, buf, sizeof(buf));
+  int or, r = b_produce_reply(req->io, buf, sizeof(buf));
   dns_msg msg;
 
   L_DEBUG("sufficient buffer reply got %d", r);
@@ -102,7 +104,7 @@ void ohp_send_reply(struct ohp_request *req)
 
   /* Fallback - no additional records */
   or = r;
-  r = d2m_produce_reply(req, buf, r - 1);
+  r = b_produce_reply(req->io, buf, r - 1);
   L_DEBUG("short push 1 got %d", r);
   sput_fail_unless(r > (int)sizeof(*msg),
                    "enough bytes from d2m_produce_reply");
@@ -115,7 +117,7 @@ void ohp_send_reply(struct ohp_request *req)
 
   /* Fallback 2 - no records (just TC bit) */
   or = r;
-  r = d2m_produce_reply(req, buf, r-1);
+  r = b_produce_reply(req->io, buf, r-1);
   L_DEBUG("short push 2 got %d", r);
   sput_fail_unless(r > (int)sizeof(*msg),
                    "enough bytes from d2m_produce_reply");
@@ -127,7 +129,7 @@ void ohp_send_reply(struct ohp_request *req)
   check_reply_range(req, r, or);
 
   /* Shorter than that should result in error */
-  r = d2m_produce_reply(req, buf, r-1);
+  r = b_produce_reply(req->io, buf, r-1);
   L_DEBUG("short push 3 got %d", r);
   sput_fail_unless(r < 0, "really short buffer should be error");
 }
@@ -139,7 +141,7 @@ void ohp_send_reply(struct ohp_request *req)
 
 void check_dns2mdns(void)
 {
-  struct ohp_request req;
+  struct io_request ioreq;
   ohp_query q, srv_q, aaaa_q;
   uint8_t buf[256];
   int r, hdr_len;
@@ -147,17 +149,20 @@ void check_dns2mdns(void)
   sput_fail_unless(_add_interface("dummy", DIF, "home") >= 0, "_add_interface");
 
   /* Case: Realistic request. */
-  memset(&req, 0, sizeof(req));
-  q = d2m_req_add_query(&req, "test.home.", kDNSServiceType_ANY);
+  memset(&ioreq, 0, sizeof(ioreq));
+  b_req_init(&ioreq);
+  ohp_request req = ioreq.b_private;
+
+  q = b_req_add_query(&ioreq, "test.home.", kDNSServiceType_ANY);
   sput_fail_unless(q, "d2m_req_add_query failed");
 
   smock_push("dnsqr_name", "test.local.");
   smock_push_int("dnsqr_rrtype", kDNSServiceType_ANY);
   smock_push_int("dnsqr_result", kDNSServiceErr_NoError);
-  d2m_req_start(&req);
+  b_req_start(&ioreq);
   smock_is_empty();
 
-  sput_fail_unless(req.running == 1, "1 running");
+  sput_fail_unless(req->running == 1, "1 running");
 
   /* Provide PTR response. Make sure it gets resolved. */
   r = escaped2ll(SERVICE_NAME, buf, sizeof(buf));
@@ -185,7 +190,7 @@ void check_dns2mdns(void)
                     120,
                     q);
   smock_is_empty();
-  sput_fail_unless(req.running == 3, "3 running");
+  sput_fail_unless(req->running == 3, "3 running");
 
 
   /* Now, our fictional SRV query returns something.. */
@@ -217,7 +222,7 @@ void check_dns2mdns(void)
                     120,
                     srv_q);
   smock_is_empty();
-  sput_fail_unless(req.running == 4, "4 running");
+  sput_fail_unless(req->running == 4, "4 running");
 
   /* And then return _two_ IPv6 addresses for the host. */
   aaaa_q = first_dnsqr_context;
@@ -241,7 +246,7 @@ void check_dns2mdns(void)
   aaaa_q = first_dnsqr_context;
   sput_fail_unless(aaaa_q, "no q");
   /* receiving one record should not terminate the AAAA query. */
-  sput_fail_unless(req.running == 4, "4 running");
+  sput_fail_unless(req->running == 4, "4 running");
 
   r = 16;
   memset(buf, 43, r);
@@ -257,15 +262,15 @@ void check_dns2mdns(void)
                     120,
                     aaaa_q);
   smock_is_empty();
-  sput_fail_unless(req.running == 3, "3 running");
+  sput_fail_unless(req->running == 3, "3 running");
 
   /* Ok. Let's pretend we get a timeout. */
   smock_push_bool("ohpsr", true);
-  d2m_req_stop(&req);
+  b_req_stop(&ioreq);
   smock_is_empty();
 
   /* Free the structure. */
-  d2m_req_free(&req);
+  b_req_free(&ioreq);
 
   /* Clear the slate */
   _state_reset();

@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:23:19 2014 mstenber
- * Last modified: Thu Feb 20 13:25:32 2014 mstenber
- * Edit time:     46 min
+ * Last modified: Fri Sep 11 11:24:14 2015 mstenber
+ * Edit time:     50 min
  *
  */
 
@@ -61,20 +61,13 @@ typedef struct ohp_query {
 } *ohp_query;
 
 
-/* Shared structure between this + main ohp loop. */
+/* Private dns2mdns request structure (within io_request->b_private). */
 typedef struct ohp_request {
-  /* List head for dns2mdns.c; a list of _active_ requests (start
-   * called, but not yet stop) is kept there. */
+  /* A list of _active_ requests (start called, but not yet stop). */
   struct list_head lh;
 
   /* Active timeout if any. */
   struct uloop_timeout timeout;
-
-  /* Information from the DNS request by client. */
-  uint16_t dnsid;
-  size_t maxlen;
-  bool udp;
-  bool active;
 
   /* List of sub-queries. The first query is the 'main' one, and the
    * rest 'additional records' ones. */
@@ -90,11 +83,14 @@ typedef struct ohp_request {
    * in LLQ case). */
   bool sent;
 
+  /* Backpointer to the request we are in. */
+  struct io_request *io;
+
   /* Used interface (if any; reverse queries we do on all interfaces
    * and do mapping based on result. the first result 'glues' the
    * interface, though) */
   struct d2m_interface_struct *interface;
-} *ohp_request;;
+} *ohp_request;
 
 /*
  * This module handles actual interface with the lower level mdns, and
@@ -105,25 +101,9 @@ typedef struct ohp_request {
  */
 
 /*
- * These two calls are used to start/stop underlying mdns processing
- * of a request.
- */
-void d2m_req_start(ohp_request req);
-void d2m_req_stop(ohp_request req);
-
-/*
  * Add one real system interface, with specified domain (reverse
  * happens automatically) to the request processing logic.
  */
 int d2m_add_interface(const char *ifname, const char *domain);
-
-/* Add query (if it does not already exist). */
-struct ohp_query *d2m_req_add_query(ohp_request req, const char *query, uint16_t qtype);
-
-/* Produce reply to the pre-allocated buffer. Return value is the
- * number of bytes used, or -1 if the reply buffer is too small. */
-int d2m_produce_reply(ohp_request req, uint8_t *buf, int buf_len);
-
-void d2m_req_free(ohp_request req);
 
 #endif /* DNS2MDNS_H */
