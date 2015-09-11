@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 14:41:31 2014 mstenber
- * Last modified: Mon Jan 13 12:36:35 2014 mstenber
- * Edit time:     12 min
+ * Last modified: Fri Sep 11 12:35:29 2015 mstenber
+ * Edit time:     13 min
  *
  */
 
@@ -40,6 +40,9 @@ typedef struct __packed dns_msg {
 
 /* name server does not support requested kind of query */
 #define DNS_RCODE_NOTIMP 4
+
+#define DNS_CLASS_IN 1
+#define DNS_SERVICE_ANY 255
 
 typedef struct __packed dns_query {
   /* Preceded by label list */

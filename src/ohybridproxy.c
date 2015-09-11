@@ -83,5 +83,5 @@ help:
 		}
 	}
 
-	return io_run(bindaddr, bindport);
+	return io_run(bindaddr, bindport, MAXIMUM_REQUEST_DURATION_IN_MS);
 }

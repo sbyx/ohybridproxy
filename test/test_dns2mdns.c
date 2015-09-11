@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:30:07 2014 mstenber
- * Last modified: Fri Sep 11 11:34:47 2015 mstenber
- * Edit time:     78 min
+ * Last modified: Fri Sep 11 13:24:36 2015 mstenber
+ * Edit time:     83 min
  *
  */
 
@@ -44,6 +44,9 @@ DNSServiceErrorType dummy_DNSServiceQueryRecord(DNSServiceRef *service,
                                                 void *context);
 
 #include "dns2mdns.c"
+#include "io.c"
+
+io_time_t maximum_duration = MAXIMUM_REQUEST_DURATION_IN_MS;
 
 static void *first_dnsqr_context = NULL;
 
@@ -142,27 +145,27 @@ void io_send_reply(io_request ioreq)
 void check_dns2mdns(void)
 {
   struct io_request ioreq;
-  ohp_query q, srv_q, aaaa_q;
+  io_query ioq;
+  ohp_query srv_q, aaaa_q;
   uint8_t buf[256];
   int r, hdr_len;
 
   sput_fail_unless(_add_interface("dummy", DIF, "home") >= 0, "_add_interface");
 
   /* Case: Realistic request. */
-  memset(&ioreq, 0, sizeof(ioreq));
-  b_req_init(&ioreq);
+  io_req_init(&ioreq);
   ohp_request req = ioreq.b_private;
 
-  q = b_req_add_query(&ioreq, "test.home.", kDNSServiceType_ANY);
-  sput_fail_unless(q, "d2m_req_add_query failed");
+  ioq = io_req_add_query(&ioreq, "test.home.", kDNSServiceType_ANY);
+  sput_fail_unless(ioq, "d2m_req_add_query failed");
 
   smock_push("dnsqr_name", "test.local.");
   smock_push_int("dnsqr_rrtype", kDNSServiceType_ANY);
   smock_push_int("dnsqr_result", kDNSServiceErr_NoError);
-  b_req_start(&ioreq);
+  io_req_start(&ioreq);
   smock_is_empty();
 
-  sput_fail_unless(req->running == 1, "1 running");
+  sput_fail_unless(req->io->running == 1, "1 running");
 
   /* Provide PTR response. Make sure it gets resolved. */
   r = escaped2ll(SERVICE_NAME, buf, sizeof(buf));
@@ -188,9 +191,9 @@ void check_dns2mdns(void)
                     r,
                     buf,
                     120,
-                    q);
+                    ioq->b_private);
   smock_is_empty();
-  sput_fail_unless(req->running == 3, "3 running");
+  sput_fail_unless(req->io->running == 3, "3 running");
 
 
   /* Now, our fictional SRV query returns something.. */
@@ -222,7 +225,7 @@ void check_dns2mdns(void)
                     120,
                     srv_q);
   smock_is_empty();
-  sput_fail_unless(req->running == 4, "4 running");
+  sput_fail_unless(req->io->running == 4, "4 running");
 
   /* And then return _two_ IPv6 addresses for the host. */
   aaaa_q = first_dnsqr_context;
@@ -246,7 +249,7 @@ void check_dns2mdns(void)
   aaaa_q = first_dnsqr_context;
   sput_fail_unless(aaaa_q, "no q");
   /* receiving one record should not terminate the AAAA query. */
-  sput_fail_unless(req->running == 4, "4 running");
+  sput_fail_unless(req->io->running == 4, "4 running");
 
   r = 16;
   memset(buf, 43, r);
@@ -262,18 +265,18 @@ void check_dns2mdns(void)
                     120,
                     aaaa_q);
   smock_is_empty();
-  sput_fail_unless(req->running == 3, "3 running");
+  sput_fail_unless(req->io->running == 3, "3 running");
 
   /* Ok. Let's pretend we get a timeout. */
   smock_push_bool("ohpsr", true);
-  b_req_stop(&ioreq);
+  io_req_stop(&ioreq);
   smock_is_empty();
 
   /* Free the structure. */
-  b_req_free(&ioreq);
+  io_req_free(&ioreq);
 
   /* Clear the slate */
-  _state_reset();
+  io_reset();
 }
 
 int main(int argc, char **argv)

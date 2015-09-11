@@ -7,8 +7,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Fri Sep 11 11:38:39 2015 mstenber
- * Edit time:     13 min
+ * Last modified: Fri Sep 11 13:26:28 2015 mstenber
+ * Edit time:     61 min
  *
  */
 
@@ -21,13 +21,6 @@
 #include "dns_util.h"
 
 #define LOCAL_SUFFIX "local."
-
-/* Hack which deals with some implementations publishing
- * linklocal-only addresses even if they really have globals. Use with
- * care. */
-#undef ENABLE_HACK_GLOBALISH_TO_LINKLOCAL_REWRITE
-
-static struct list_head active_ohp_requests = LIST_HEAD_INIT(active_ohp_requests);
 
 typedef struct d2m_interface_struct {
   struct list_head head;
@@ -50,10 +43,6 @@ typedef struct d2m_conn_struct {
   struct uloop_fd fd;
 } *d2m_conn;
 
-static int _query_start(struct ohp_query *q);
-static int _query_stop(struct ohp_query *q);
-static void _req_send(ohp_request req);
-
 static void _conn_free(d2m_conn c)
 {
   if (!c)
@@ -66,16 +55,6 @@ static void _conn_free(d2m_conn c)
       DNSServiceRefDeallocate(c->service);
     }
   free(c);
-}
-
-static void d2m_req_stop(ohp_request req);
-
-static void _state_reset()
-{
-  /* First off, clear the active requests */
-  ohp_request r, nr;
-  list_for_each_entry_safe(r, nr, &active_ohp_requests, lh)
-    d2m_req_stop(r);
 }
 
 static void
@@ -98,7 +77,7 @@ _fd_callback(struct uloop_fd *u, unsigned int events __unused)
     {
       L_ERR("error from mdnsd socket");
     }
-  _state_reset();
+  io_reset();
 }
 
 static void _conn_register(d2m_conn conn)
@@ -171,30 +150,22 @@ _rewrite_domain(const char *src, char *buf, int buf_len,
                        )                                                \
  : NULL)
 
-static ohp_rr
+static io_rr
 _query_add_rr(ohp_query q, const char *name, dns_rr drr, const void *rdata)
 {
   const char *rrname;
 
   if (q->use_query_name_in_reply)
-    rrname = q->query;
+    rrname = q->io->query;
   else
-    rrname = TO_DNS(q->request->interface, name);
+    {
+      ohp_request req = q->io->request->b_private;
+      rrname = TO_DNS(req->interface, name);
+    }
 
   if (!rrname)
     return NULL;
-  ohp_rr rr = calloc(1, sizeof(*rr) + drr->rdlen);
-  if (!rr)
-    return NULL;
-  if (!(rr->name = strdup(rrname)))
-    {
-      free(rr);
-      return NULL;
-    }
-  rr->drr = *drr;
-  memcpy(rr->drr.rdata, rdata, drr->rdlen);
-  list_add(&rr->head, &q->rrs);
-  return rr;
+  return io_query_add_rr(q->io, rrname, drr, rdata);
 }
 
 static void
@@ -211,7 +182,8 @@ _service_callback(DNSServiceRef service __unused,
                   void *context)
 {
   ohp_query q = context;
-  ohp_query nq;
+  ohp_request req = q->io->request->b_private;
+  io_query nq;
   bool probably_cf = false;
   const uint8_t *rbytes = rdata;
 
@@ -233,7 +205,7 @@ _service_callback(DNSServiceRef service __unused,
   /*
    * Specify interface for the whole request if it is not set yet.
    */
-  if (!q->request->interface)
+  if (!req->interface)
     {
       d2m_interface ip;
 
@@ -241,11 +213,11 @@ _service_callback(DNSServiceRef service __unused,
         {
           if (ip->ifindex == ifindex || !ifindex)
             {
-              q->request->interface = ip;
+              req->interface = ip;
               break;
             }
         }
-      if (!q->request->interface)
+      if (!req->interface)
         {
           L_INFO("ignoring from unconfigured interface#%d for %s/%d",
                  ifindex, name, rrtype);
@@ -276,13 +248,13 @@ _service_callback(DNSServiceRef service __unused,
               L_ERR("error decoding ptr record");
               return;
             }
-          const char *qb = TO_DNS(q->request->interface, buf);
+          const char *qb = TO_DNS(req->interface, buf);
           if (!qb)
             return;
-          if ((nq = b_req_add_query(q->request->io, qb, kDNSServiceType_SRV)))
-            _query_start(nq);
-          if ((nq = b_req_add_query(q->request->io, qb, kDNSServiceType_TXT)))
-            _query_start(nq);
+          if ((nq = io_req_add_query(req->io, qb, kDNSServiceType_SRV)))
+            io_query_start(nq);
+          if ((nq = io_req_add_query(req->io, qb, kDNSServiceType_TXT)))
+            io_query_start(nq);
         }
       break;
     case kDNSServiceType_SRV:
@@ -296,13 +268,13 @@ _service_callback(DNSServiceRef service __unused,
             L_ERR("error decoding ptr record");
             return;
           }
-        const char *qb = TO_DNS(q->request->interface, buf);
+        const char *qb = TO_DNS(req->interface, buf);
         if (!qb)
             return;
-        if ((nq = b_req_add_query(q->request->io, qb, kDNSServiceType_AAAA)))
-          _query_start(nq);
-        if ((nq = b_req_add_query(q->request->io, qb, kDNSServiceType_A)))
-          _query_start(nq);
+        if ((nq = io_req_add_query(req->io, qb, kDNSServiceType_AAAA)))
+          io_query_start(nq);
+        if ((nq = io_req_add_query(req->io, qb, kDNSServiceType_A)))
+          io_query_start(nq);
       }
       probably_cf = true;
       break;
@@ -321,7 +293,7 @@ _service_callback(DNSServiceRef service __unused,
   if (ttl > MAXIMUM_MDNS_TO_DNS_TTL)
     ttl = MAXIMUM_MDNS_TO_DNS_TTL;
   L_DEBUG("adding rr %s/%d (%d bytes, %d ttl)",
-          q->query, rrtype, rdlen, ttl);
+          q->io->query, rrtype, rdlen, ttl);
   struct dns_rr drr;
   drr.rrtype = rrtype;
   drr.rrclass = rrclass;
@@ -330,69 +302,43 @@ _service_callback(DNSServiceRef service __unused,
   /* If add succeeds, and is probably cf, we can perhaps stop the query. */
   if (_query_add_rr(q, name, &drr, rdata) && probably_cf
       && !(flags & kDNSServiceFlagsMoreComing))
-    _query_stop(q);
+    io_query_stop(q->io);
 }
 
-static int _query_start(ohp_query q)
+bool b_query_start(io_query ioq)
 {
   int flags = kDNSServiceFlagsForceMulticast;
   int ifindex;
   int err;
   d2m_interface ifo = NULL, ip;
-  const char *qb = q->query;
+  const char *qb = ioq->query;
+  ohp_request req = ioq->request->b_private;
+  ohp_query q;
+
+  ioq->b_private = calloc(1, sizeof(*q));
+  q = ioq->b_private;
+  q->io = ioq;
 
   /*
    * First off, if the _request_ is already bound to an interface, we
    * can use that.
    */
-  if (!(ifo = q->request->interface))
+  if (!(ifo = req->interface))
     {
       /*
        * Look at the request. Either it ends with one of the domains we
        * already have, or it ends with arpa, or we ignore it.
        */
-      if (_string_endswith(q->query, ".arpa."))
+      if (_string_endswith(qb, ".arpa."))
         {
           ifo = NULL;
-#ifdef ENABLE_HACK_GLOBALISH_TO_LINKLOCAL_REWRITE
-          /* Check if it's IPv6 address; if so, and it's for
-           * non-linklocal address, we may have to rewrite it (This is
-           * mainly thanks to mdnsresponder(?) bug in which globals
-           * aren't advertised for the reverses even if
-           * available. Sigh.). */
-          struct in6_addr a;
-          if (escaped2ipv6(qb, &a))
-            {
-              /* Ok, it _is_ IPv6 address. If it's ULA or GUA, convert
-               * it to linklocal one. */
-              if ((a.s6_addr[0] & 0x70) == 0x20
-                  || ((a.s6_addr[0] & 0xfe) == 0xfc))
-                {
-                  char *c = alloca(DNS_MAX_ESCAPED_LEN);
-                  int i;
-                  if (c)
-                    {
-                      a.s6_addr[0] = 0xFE;
-                      a.s6_addr[1] = 0x80;
-                      for (i = 2 ; i < 8 ; i++)
-                        a.s6_addr[i] = 0;
-                      ipv62escaped(&a, c);
-                      qb = c;
-                    }
-                }
-              /* Reverse direction is done automatically, as we change
-               * here only the arguments given to the DNS-SD library;
-               * the PTR's rdata is just a name (that will be
-               * rewritten appropriately). */
-            }
-#endif /* ENABLE_HACK_GLOBALISH_TO_LINKLOCAL_REWRITE */
           q->use_query_name_in_reply = true;
         }
       else
         {
           list_for_each_entry(ip, &interfaces, head)
             {
-              if (_string_endswith(q->query, ip->domain))
+              if (_string_endswith(qb, ip->domain))
                 {
                   ifo = ip;
                   break;
@@ -401,15 +347,15 @@ static int _query_start(ohp_query q)
 
           if (!ifo)
             {
-              L_INFO("impossible to serve query:%s", q->query);
+              L_INFO("impossible to serve query:%s", qb);
               goto done;
             }
 
-          q->request->interface = ifo;
+          req->interface = ifo;
         }
     }
   if (ifo)
-    qb = TO_MDNS(ifo, q->query);
+    qb = TO_MDNS(ifo, qb);
   ifindex = ifo ? ifo->ifindex : 0;
   q->conn = calloc(1, sizeof(*q->conn));
   if (!q->conn)
@@ -417,8 +363,8 @@ static int _query_start(ohp_query q)
   L_DEBUG("DNSServiceQueryRecord %s @ %d", qb, ifindex);
   if ((err = DNSServiceQueryRecord(&q->conn->service, flags, ifindex,
                                    qb,
-                                   q->dq.qtype,
-                                   q->dq.qclass,
+                                   ioq->dq.qtype,
+                                   ioq->dq.qclass,
                                    _service_callback,
                                    q) != kDNSServiceErr_NoError))
     {
@@ -426,93 +372,33 @@ static int _query_start(ohp_query q)
       goto done;
     }
   _conn_register(q->conn);
-  q->request->running++;
-  return 0;
+  return true;
  done:
-  if (!q->request->running)
-    {
-      _req_send(q->request);
-      return 1;
-    }
-  return 0;
+  return false;
 }
 
-static void _req_send(ohp_request req)
+void b_queries_done(io_request req)
 {
-  if (req->sent)
+  io_send_reply(req);
+}
+
+void b_query_stop(io_query ioq)
+{
+  ohp_query q = ioq->b_private;
+
+  if (!q->conn)
     return;
-  req->sent = true;
-  L_DEBUG("calling b_req_send for %p", req);
-  io_send_reply(req->io);
+  _conn_free(q->conn);
+  q->conn = NULL;
 }
 
-static int _query_stop(ohp_query q)
+void b_req_start(io_request ioreq __unused)
 {
-  if (q->conn && q->conn->service)
-    {
-      DNSServiceRefDeallocate(q->conn->service);
-      q->conn->service = NULL;
-      if (!(--(q->request->running)))
-        {
-          _req_send(q->request);
-          return -1;
-        }
-    }
-  return 0;
+
 }
 
-static void _request_timeout(struct uloop_timeout *t)
+void b_req_stop(io_request ioreq __unused)
 {
-  ohp_request req = container_of(t, struct ohp_request, timeout);
-
-  /* Just call stop, it will call send eventually if it already hasn't. */
-  L_DEBUG("_request_timeout");
-  d2m_req_stop(req);
-}
-
-void b_req_start(io_request ioreq)
-{
-  ohp_request req = ioreq->b_private;
-  ohp_query q;
-
-  L_DEBUG("b_req_start %p", req);
-
-  /* In case of instant failure, we don't want query-start triggered
-   * code to have incomplete request structure -> we set things
-   * here. */
-  uloop_timeout_set(&req->timeout, MAXIMUM_REQUEST_DURATION_IN_MS);
-  req->timeout.cb = _request_timeout;
-  req->started = true;
-  list_add(&req->lh, &active_ohp_requests);
-  list_for_each_entry(q, &req->queries, head)
-    {
-      if (_query_start(q))
-        return;
-    }
-}
-
-static void d2m_req_stop(ohp_request req)
-{
-  ohp_query q;
-
-  L_DEBUG("d2m_req_stop %p", req);
-  if (!req->started)
-    return;
-  req->started = false;
-  list_del(&req->lh);
-
-  /* Cancel the timeout if we already didn't fire it. */
-  uloop_timeout_cancel(&req->timeout);
-
-  /* Stop the sub-queries. */
-  list_for_each_entry(q, &req->queries, head)
-    if (_query_stop(q))
-      return;
-}
-
-void b_req_stop(io_request ioreq)
-{
-  d2m_req_stop(ioreq->b_private);
 }
 
 static int _add_interface(const char *ifname, uint32_t ifindex,
@@ -563,66 +449,10 @@ int d2m_add_interface(const char *ifname, const char *domain)
 }
 
 
-ohp_query
-b_req_add_query(io_request ioreq, const char *query, uint16_t qtype)
-{
-  ohp_request req = ioreq->b_private;
-  ohp_query q;
-
-  /* Determine if it's uninitialized. */
-  L_DEBUG("adding query %s/%d to %p", query, qtype, req);
-  if (!req->queries.next)
-    {
-      INIT_LIST_HEAD(&req->queries);
-    }
-  list_for_each_entry(q, &req->queries, head)
-    {
-      uint16_t oqtype = q->dq.qtype;
-      if (strcmp(q->query, query) == 0
-          && (oqtype == qtype
-              || oqtype == kDNSServiceType_ANY))
-        {
-          L_DEBUG(" .. but it already exists");
-          return NULL;
-        }
-    }
-  q = calloc(1, sizeof(*q));
-  if (!q)
-    return NULL;
-  q->query = strdup(query);
-  if (!q->query)
-    {
-      free(q);
-      return NULL;
-    }
-  q->dq.qtype = qtype;
-  q->dq.qclass = kDNSServiceClass_IN;
-  q->request = req;
-  INIT_LIST_HEAD(&q->rrs);
-  list_add_tail(&q->head, &req->queries);
-  return q;
-}
-
-static void _rr_free(ohp_rr rr)
-{
-  free(rr->name);
-  list_del(&rr->head);
-  free(rr);
-}
-
-static void _query_free(ohp_query q)
-{
-  _conn_free(q->conn);
-  list_del(&q->head);
-  while (!list_empty(&q->rrs))
-    _rr_free(list_first_entry(&q->rrs, struct ohp_rr, head));
-  free(q->query);
-  free(q);
-}
-
 void b_req_init(io_request ioreq)
 {
   ohp_request req = calloc(1, sizeof(*req));
+
   ioreq->b_private = req;
   req->io = ioreq;
 }
@@ -630,16 +460,6 @@ void b_req_init(io_request ioreq)
 void b_req_free(io_request ioreq)
 {
   ohp_request req = ioreq->b_private;
-
-  /* Free shouldn't trigger send. */
-  req->sent = true;
-
-  /* Stop sub-queries. */
-  d2m_req_stop(req);
-
-  /* Free contents. */
-  while (!list_empty(&req->queries))
-    _query_free(list_first_entry(&req->queries, struct ohp_query, head));
 
   /* Free private data itself */
   free(req);
@@ -760,7 +580,7 @@ do {                                                            \
  } while(0)
 
 static int _produce_reply_push_rr(ohp_query q,
-                                  ohp_rr rr,
+                                  io_rr rr,
                                   uint8_t *buf, int buf_len,
                                   uint8_t *saved[], size_t saved_max)
 {
@@ -769,6 +589,7 @@ static int _produce_reply_push_rr(ohp_query q,
   uint8_t *sbuf = rr->drr.rdata;
   int slen = rr->drr.rdlen;
   int r;
+  ohp_request req = q->io->request->b_private;
 
   switch (rr->drr.rrtype)
     {
@@ -793,7 +614,7 @@ static int _produce_reply_push_rr(ohp_query q,
             L_ERR("error decoding ptr(/srv) record");
             return r;
           }
-        const char *qb = TO_DNS(q->request->interface, dbuf);
+        const char *qb = TO_DNS(req->interface, dbuf);
         PUSH_EXPANDED(qb, saved, saved_max);
       }
       break;
@@ -814,8 +635,8 @@ int b_produce_reply(io_request ioreq,
 {
   ohp_request req = ioreq->b_private;
   uint8_t *obuf = buf;
-  ohp_query q;
-  ohp_rr rr;
+  io_query q;
+  io_rr rr;
   bool first = true;
   dns_msg msg = NULL;
   dns_query dq;
@@ -831,7 +652,7 @@ int b_produce_reply(io_request ioreq,
   msg->id = ioreq->dnsid;
   /* XXX - should we copy RD from original message like Lua code does?
    * why does it do that? hmm. */
-  list_for_each_entry(q, &req->queries, head)
+  list_for_each_entry(q, &req->io->queries, head)
     {
       L_DEBUG(" producing reply for %s/%d", q->query, q->dq.qtype);
       if (first)
@@ -850,7 +671,8 @@ int b_produce_reply(io_request ioreq,
         {
           PUSH_EXPANDED(rr->name, saved, saved_max);
           PUSH(dr);
-          r = _produce_reply_push_rr(q, rr, buf, buf_len, saved, saved_max);
+          r = _produce_reply_push_rr(q->b_private,
+                                     rr, buf, buf_len, saved, saved_max);
           if (r == DNS_RESULT_OOB)
             goto oob;
           if (r < 0)

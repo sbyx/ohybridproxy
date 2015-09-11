@@ -16,7 +16,7 @@ else(${APPLE})
 set(dns_sd "dns_sd")
 endif(${APPLE})
 
-add_executable(ohybridproxy src/ohybridproxy.c src/io.c src/dns2mdns.c)
+add_executable(ohybridproxy src/ohybridproxy.c src/io.c src/dns2mdns.c src/socket.c)
 target_link_libraries(ohybridproxy ubox ${dns_sd})
 
 # Unit test stuff

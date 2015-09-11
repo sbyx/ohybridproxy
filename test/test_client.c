@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 11:13:07 2014 mstenber
- * Last modified: Fri Sep 11 11:37:37 2015 mstenber
- * Edit time:     22 min
+ * Last modified: Fri Sep 11 13:21:53 2015 mstenber
+ * Edit time:     25 min
  *
  */
 
@@ -15,9 +15,12 @@
 
 #include "dns2mdns.h"
 #include "dns2mdns.c"
+#include "io.c"
 
 #include <assert.h>
 #include <string.h>
+
+io_time_t maximum_duration = MAXIMUM_REQUEST_DURATION_IN_MS;
 
 void io_send_reply(io_request req)
 {
@@ -51,19 +54,19 @@ int main(int argc, char **argv)
       exit(1);
     }
   L_DEBUG("Configuring d2m");
-  b_req_init(&r);
+  io_req_init(&r);
   if (d2m_add_interface(argv[1], "home") < 0)
     {
       exit(1);
     }
-  b_req_add_query(&r, argv[2],
-                  argc > 3 ? atoi(argv[3]) : kDNSServiceType_ANY);
-  b_req_start(&r);
+  io_req_add_query(&r, argv[2],
+                   argc > 3 ? atoi(argv[3]) : kDNSServiceType_ANY);
+  io_req_start(&r);
   L_INFO("Entering event loop");
   uloop_run();
 
   /* Clean up - hopefully we won't leak memory if we do it right. */
-  b_req_free(&r);
-  _state_reset();
+  io_req_free(&r);
+  io_reset();
   return 0;
 }
