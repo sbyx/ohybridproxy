@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 11:41:22 2014 mstenber
- * Last modified: Mon Feb 10 09:25:01 2014 mstenber
- * Edit time:     85 min
+ * Last modified: Sat Sep 12 11:40:46 2015 mstenber
+ * Edit time:     94 min
  *
  */
 
@@ -41,6 +41,9 @@
 /* This error indicates that something else went awry; typically,
  * input is malformed in some way. */
 #define DNS_RESULT_ERROR -2
+
+/* Label compression encountered but not supported */
+#define DNS_RESULT_LC_NOT_SUPPORTED -3
 
 /*
  * This header file defines functions for transforming label list to
@@ -216,7 +219,7 @@ int l2escaped(const uint8_t *l, int l_len, char *escaped, int escaped_left)
  * terminated) or less than zero in case of error.
  */
 static inline
-int ll2escaped(const uint8_t *ll, int ll_left, char *escaped, int escaped_left)
+int ll2escaped(const uint8_t *base, const uint8_t *ll, int ll_left, char *escaped, int escaped_left)
 {
   const uint8_t *oll = ll;
   int r;
@@ -238,6 +241,26 @@ int ll2escaped(const uint8_t *ll, int ll_left, char *escaped, int escaped_left)
       /* Empty label terminates the label list. */
       if (c)
         {
+          if ((c & (64|128)) == (64|128))
+            {
+              if (!base)
+                return DNS_RESULT_LC_NOT_SUPPORTED;
+              if (!ll_left--)
+                {
+                  L_DEBUG("out of input string (before last null label)");
+                  return DNS_RESULT_ERROR;
+                }
+              uint8_t c2 = *(ll++);
+              const uint8_t *nofs = base + ((c % 64) << 8) + c2;
+              r = ll2escaped(base, nofs, ll + ll_left - nofs, escaped, escaped_left);
+              if (r < 0)
+                return r;
+              return ll - oll;
+            }
+          if (c & (64|128))
+            {
+              return DNS_RESULT_ERROR;
+            }
           ll_left -= c;
           if (ll_left < 0)
             {

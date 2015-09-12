@@ -78,7 +78,7 @@ help:
 		}
 		*domain++ = 0;
 		/* Now we can do stuff with ifname+domain. */
-		if (d2m_add_interface(ifname, domain)) {
+		if (!d2m_add_interface(ifname, domain)) {
 			L_ERR("Failed to add interface %s: %s", ifname, strerror(errno));
 			return 2;
 		}

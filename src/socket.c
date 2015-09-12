@@ -92,7 +92,7 @@ static bool io_parse_request(io_request req, const uint8_t *buf, size_t len, boo
 		return false;
 
 	char domain[DNS_MAX_ESCAPED_LEN];
-	int complen = ll2escaped(question, eom - question, domain, sizeof(domain));
+	int complen = ll2escaped(buf, question, eom - question, domain, sizeof(domain));
 	const uint8_t *opt = &question[complen + 4]; // Point to next RR (should be OPT or EOM)
 	if (complen <= 0 || opt > eom)
 		return false;
@@ -100,7 +100,7 @@ static bool io_parse_request(io_request req, const uint8_t *buf, size_t len, boo
 	req->dnsid = be16_to_cpu(hdr[0]);
 	req->udp = udp;
 	req->maxlen = (udp) ? 512 : 65535;
-	io_req_add_query(req, domain, question[complen] << 8 | question[complen + 1]);
+	b_req_set_query(req, domain, question[complen] << 8 | question[complen + 1]);
 
 	// Test for OPT-RR (EDNS)
 	if (udp && &opt[10] <= eom && opt[0] == 0 && opt[1] == 0 && opt[2] == 41) {
@@ -146,7 +146,7 @@ static void io_handle_udp(struct uloop_fd *fd, __unused unsigned int events)
 		struct io_request_udp *req = calloc(1, sizeof(*req) + addrlen);
 		req->addrlen = addrlen;
 		memcpy(req->addr, &addr, addrlen);
-
+		io_req_init(&req->req);
 		if (!io_parse_request(&req->req, buf, (size_t)len, true)) {
 			L_DEBUG("UDP request was invalid");
 			// TODO: reply with DNS FORMERR here?

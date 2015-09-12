@@ -7,41 +7,22 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Fri Sep 11 13:39:53 2015 mstenber
- * Edit time:     71 min
+ * Last modified: Sat Sep 12 11:39:36 2015 mstenber
+ * Edit time:     80 min
  *
  */
 
 #include <stdlib.h>
 #include <net/if.h>
 
-#include "dns2mdns.h"
+#include "dns2mdns_i.h"
 #include "io.h"
 #include "dns_proto.h"
 #include "dns_util.h"
 
 #define LOCAL_SUFFIX "local."
 
-typedef struct d2m_interface_struct {
-  struct list_head head;
-
-  /* how much less (or more) space we need */
-  int to_dns_delta;
-
-  /* Domain assigned to the interface. */
-  char domain[kDNSServiceMaxDomainName];
-
-  /* Actual interface - name + index. */
-  char ifname[IFNAMSIZ];
-  uint32_t ifindex;
-} *d2m_interface;
-
 static struct list_head interfaces = LIST_HEAD_INIT(interfaces);
-
-typedef struct d2m_conn_struct {
-  DNSServiceRef service;
-  struct uloop_fd fd;
-} *d2m_conn;
 
 static void _conn_free(d2m_conn c)
 {
@@ -243,7 +224,7 @@ _service_callback(DNSServiceRef service __unused,
           char buf[kDNSServiceMaxDomainName];
 
           /* The relevant name is the only content of ptr. */
-          if (ll2escaped(rdata, rdlen, buf, sizeof(buf))<0)
+          if (ll2escaped(NULL, rdata, rdlen, buf, sizeof(buf))<0)
             {
               L_ERR("error decoding ptr record");
               return;
@@ -262,7 +243,7 @@ _service_callback(DNSServiceRef service __unused,
         char buf[kDNSServiceMaxDomainName];
         /* The relevant name is the only content of ptr. */
         int srv_header_size = sizeof(struct dns_rdata_srv);
-        if (ll2escaped(rdata + srv_header_size, rdlen - srv_header_size,
+        if (ll2escaped(NULL, rdata + srv_header_size, rdlen - srv_header_size,
                        buf, sizeof(buf))<0)
           {
             L_ERR("error decoding ptr record");
@@ -397,8 +378,8 @@ void b_query_free(io_query ioq)
   free(q);
 }
 
-static int _add_interface(const char *ifname, uint32_t ifindex,
-                          const char *domain)
+static bool _add_interface(const char *ifname, uint32_t ifindex,
+                           const char *domain)
 {
   d2m_interface ifo;
     /* Normalize the domain by encoding it to ll and back. */
@@ -415,13 +396,13 @@ static int _add_interface(const char *ifname, uint32_t ifindex,
     {
       L_ERR("escaped2ll failed for %s", domain);
       free(ifo);
-      return -1;
+      return false;
     }
   L_DEBUG(" escaped2ll = %d", r);
-  if ((r = ll2escaped(buf, r, ifo->domain, kDNSServiceMaxDomainName)) < 0)
+  if ((r = ll2escaped(NULL, buf, r, ifo->domain, kDNSServiceMaxDomainName)) < 0)
     {
       L_ERR("ll2escaped failed for %s", domain);
-      return -1;
+      return false;
     }
   L_DEBUG(" ll2escaped= %d", r);
   strcpy(ifo->ifname, ifname);
@@ -429,17 +410,17 @@ static int _add_interface(const char *ifname, uint32_t ifindex,
   ifo->to_dns_delta = strlen(ifo->domain) - strlen(LOCAL_SUFFIX);
   list_add(&ifo->head, &interfaces);
   L_DEBUG("d2m_add_interface if:%s/%d domain:%s (from %s)", ifname, ifo->ifindex, ifo->domain, domain);
-  return 0;
+  return true;
 }
 
-int d2m_add_interface(const char *ifname, const char *domain)
+bool d2m_add_interface(const char *ifname, const char *domain)
 {
   uint32_t ifindex = if_nametoindex(ifname);
 
   if (!ifindex)
     {
       L_ERR("invalid interface:%s", ifname);
-      return -1;
+      return false;
     }
   return _add_interface(ifname, ifindex, domain);
 }
@@ -551,17 +532,6 @@ do {                                                            \
 
 #define PUSH(s) PUSH_RAW(s, sizeof(*s))
 
-#define TO_BE16(s)              \
-do {                            \
-  uint16_t *i = (void *)s;      \
-  void *e = i;                  \
-  e += sizeof(*s);              \
-  while (i != e) {              \
-      *i = cpu_to_be16(*i);     \
-      i++;                      \
-    }                           \
-} while(0)
-
 #define PUSH_EXPANDED(e, saved, saved_max)                      \
 do {                                                            \
   uint8_t _buf[256];                                            \
@@ -605,7 +575,7 @@ static int _produce_reply_push_rr(ohp_query q,
         char dbuf[kDNSServiceMaxDomainName];
 
         /* The relevant name is the only content of ptr. */
-        if ((r = ll2escaped(sbuf, slen, dbuf, sizeof(dbuf)))<0)
+        if ((r = ll2escaped(NULL, sbuf, slen, dbuf, sizeof(dbuf)))<0)
           {
             L_ERR("error decoding ptr(/srv) record");
             return r;
@@ -722,4 +692,9 @@ int b_produce_reply(io_request ioreq,
       TO_BE16(msg);
     }
   return fallback_result;
+}
+
+void b_req_set_query(io_request req, const char *query, uint16_t qtype)
+{
+  io_req_add_query(req, query, qtype);
 }

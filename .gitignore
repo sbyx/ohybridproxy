@@ -15,8 +15,11 @@ install_manifest.txt
 *~
 *.orig
 /ohybridproxy
+/zonestitcher
 /test_*
 .settings
 /coverage
 /coverage.info
+/cscope.files
+/cscope.out
 

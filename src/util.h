@@ -25,6 +25,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <time.h>
 #include <syslog.h>
 #include <sys/types.h>
@@ -77,3 +78,25 @@
 #ifndef __unused
 #define __unused __attribute__((unused))
 #endif
+
+#define FROM_BE16(s)            \
+do {                            \
+  uint16_t *i = (void *)s;      \
+  void *e = i;                  \
+  e += sizeof(*s);              \
+  while (i != e) {              \
+      *i = be16_to_cpu(*i);     \
+      i++;                      \
+    }                           \
+} while(0)
+
+#define TO_BE16(s)              \
+do {                            \
+  uint16_t *i = (void *)s;      \
+  void *e = i;                  \
+  e += sizeof(*s);              \
+  while (i != e) {              \
+      *i = cpu_to_be16(*i);     \
+      i++;                      \
+    }                           \
+} while(0)

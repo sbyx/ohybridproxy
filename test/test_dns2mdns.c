@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:30:07 2014 mstenber
- * Last modified: Fri Sep 11 13:24:36 2015 mstenber
- * Edit time:     83 min
+ * Last modified: Sat Sep 12 11:41:11 2015 mstenber
+ * Edit time:     84 min
  *
  */
 
@@ -150,7 +150,7 @@ void check_dns2mdns(void)
   uint8_t buf[256];
   int r, hdr_len;
 
-  sput_fail_unless(_add_interface("dummy", DIF, "home") >= 0, "_add_interface");
+  sput_fail_unless(_add_interface("dummy", DIF, "home"), "_add_interface");
 
   /* Case: Realistic request. */
   io_req_init(&ioreq);

@@ -6,7 +6,7 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 11:13:07 2014 mstenber
- * Last modified: Fri Sep 11 13:21:53 2015 mstenber
+ * Last modified: Sat Sep 12 10:38:47 2015 mstenber
  * Edit time:     25 min
  *
  */
@@ -55,10 +55,8 @@ int main(int argc, char **argv)
     }
   L_DEBUG("Configuring d2m");
   io_req_init(&r);
-  if (d2m_add_interface(argv[1], "home") < 0)
-    {
-      exit(1);
-    }
+  if (!d2m_add_interface(argv[1], "home"))
+    exit(1);
   io_req_add_query(&r, argv[2],
                    argc > 3 ? atoi(argv[3]) : kDNSServiceType_ANY);
   io_req_start(&r);

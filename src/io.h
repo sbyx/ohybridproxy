@@ -83,6 +83,9 @@ void io_reset();
 /* Called by the backend, when it thinks it's done */
 void io_send_reply(io_request req);
 
+/* Utility function to create a socket */
+int nusock(const char *host, int port, int t);
+
 /*************************************************** IO structure API (io.c) */
 
 /* Add query (if it does not already exist); only new query is returned. */
@@ -106,6 +109,10 @@ void io_req_init(io_request req);
 void io_req_free(io_request req);
 
 /************************************************** IO -> Backend API (X.c)  */
+
+/* Set the initial query received from the client
+ * (typically, just adding it using io_req_add_query may be enough) */
+void b_req_set_query(io_request req, const char *query, uint16_t qtype);
 
 /* Start/stop processing of a query. */
 bool b_query_start(io_query q);

@@ -19,6 +19,9 @@ endif(${APPLE})
 add_executable(ohybridproxy src/ohybridproxy.c src/io.c src/dns2mdns.c src/socket.c)
 target_link_libraries(ohybridproxy ubox ${dns_sd})
 
+add_executable(zonestitcher src/zonestitcher.c src/io.c src/dns2dns.c src/socket.c)
+target_link_libraries(zonestitcher ubox)
+
 # Unit test stuff
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")

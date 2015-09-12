@@ -6,7 +6,7 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 13:01:23 2014 mstenber
- * Last modified: Fri Sep 11 11:27:14 2015 mstenber
+ * Last modified: Sat Sep 12 11:40:01 2015 mstenber
  * Edit time:     47 min
  *
  */
@@ -85,7 +85,7 @@ void check_test_string(const char *s, int es, int es2)
             {
               /* Try to re-encode it to buf2. */
               buf2[k+1] = 42;
-              r = ll2escaped(buf, or, k ? buf2 : NULL, k);
+              r = ll2escaped(NULL, buf, or, k ? buf2 : NULL, k);
               L_DEBUG("k:%d got %d", k, r);
               sput_fail_unless(buf2[k+1] == 42, "canary died");
               if (k < es2)
