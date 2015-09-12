@@ -19,6 +19,8 @@
 typedef struct io_query {
   struct list_head head;
 
+  bool stopped;
+
   /* Query that we are performing */
   char *query;
   struct dns_query dq;

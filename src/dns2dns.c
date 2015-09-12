@@ -41,7 +41,6 @@ int n_domains = 0;
 
 typedef struct d2d_query {
   uint16_t id;
-  bool stopped;
   bool replied;
 } *d2d_query;
 
@@ -109,10 +108,8 @@ bool b_query_start(io_query ioq)
                  (struct sockaddr *)&sin6, sizeof(sin6)) > 0);
 }
 
-void b_query_stop(io_query ioq)
+void b_query_stop(io_query ioq __unused)
 {
-  d2d_query q = ioq->b_private;
-  q->stopped = true;
 }
 
 void b_query_free(io_query q)
@@ -164,6 +161,7 @@ static void _handle_udp(struct uloop_fd *ufd, __unused unsigned int events)
     uint8_t *eom = buf + len;
     char domain[DNS_MAX_ESCAPED_LEN];
     int complen = ll2escaped(buf, question, eom - question, domain, sizeof(domain));
+    bool found = false;
     if (complen <= 0)
       {
         L_DEBUG("ll->escape of query failed: %d", complen);
@@ -173,10 +171,13 @@ static void _handle_udp(struct uloop_fd *ufd, __unused unsigned int events)
     list_for_each_entry(ioq, &req->io->queries, head)
       {
         q = ioq->b_private;
-        if (!q->stopped && q->id == m->id && strcmp(domain, ioq->query)==0)
-          break;
+        if (!ioq->stopped && q->id == m->id && strcmp(domain, ioq->query)==0)
+          {
+            found = true;
+            break;
+          }
       }
-    if (!ioq)
+    if (!found)
       {
         L_DEBUG("no query found matching id %d / %s", q->id, domain);
         continue;

@@ -10,6 +10,7 @@
 
 
 #include "io.h"
+#include "cache.h"
 #include "dns_util.h"
 
 #include <errno.h>
@@ -98,7 +99,6 @@ static bool io_parse_request(io_request req, const uint8_t *buf, size_t len, boo
 	req->maxlen = (udp) ? 512 : 65535;
         dns_query dq = (dns_query) (question + complen);
         FROM_BE16(dq);
-	b_req_set_query(req, domain, dq);
 
 	// Test for OPT-RR (EDNS)
 	if (udp && &opt[10] <= eom && opt[0] == 0 && opt[1] == 0 && opt[2] == 41) {
@@ -118,8 +118,8 @@ static bool io_parse_request(io_request req, const uint8_t *buf, size_t len, boo
 
 		// TODO: Parse LLQ options?
 	}
-	io_req_start(req);
 	req->active = true;
+        cache_register_request(req, domain, dq);
 	return true;
 }
 

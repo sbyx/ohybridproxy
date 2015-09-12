@@ -50,6 +50,10 @@ bool io_query_start(io_query q)
 /* Stop processing a query; if it returns false, it killed it's friends too. */
 bool io_query_stop(io_query q)
 {
+  if (q->stopped)
+    return true;
+  L_DEBUG("io_query_stop %s", q->query);
+  q->stopped = true;
   b_query_stop(q);
   if (!(--q->request->running))
     {
@@ -105,6 +109,7 @@ void io_req_stop(io_request req)
 
   if (!req->started)
     return;
+  L_DEBUG("io_req_stop");
   req->started = false;
   list_del(&req->lh);
 
