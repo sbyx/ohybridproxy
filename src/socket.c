@@ -100,7 +100,9 @@ static bool io_parse_request(io_request req, const uint8_t *buf, size_t len, boo
 	req->dnsid = be16_to_cpu(hdr[0]);
 	req->udp = udp;
 	req->maxlen = (udp) ? 512 : 65535;
-	b_req_set_query(req, domain, question[complen] << 8 | question[complen + 1]);
+        dns_query dq = (dns_query) (question + complen);
+        FROM_BE16(dq);
+	b_req_set_query(req, domain, dq);
 
 	// Test for OPT-RR (EDNS)
 	if (udp && &opt[10] <= eom && opt[0] == 0 && opt[1] == 0 && opt[2] == 41) {

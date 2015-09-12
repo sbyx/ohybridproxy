@@ -48,9 +48,10 @@ typedef struct d2d_request {
   struct uloop_fd ufd;
   io_request io;
   char *query;
+  struct dns_query dq;
 } *d2d_request;
 
-void b_req_set_query(io_request ioreq, const char *query, uint16_t qtype)
+void b_req_set_query(io_request ioreq, const char *query, dns_query dq)
 {
   d2d_request req = ioreq->b_private;
   int i;
@@ -58,12 +59,13 @@ void b_req_set_query(io_request ioreq, const char *query, uint16_t qtype)
   int len = firstdot - query + 1; /* include dot */
 
   req->query = strdup(query);
+  req->dq = *dq;
   for (i = 0 ; i < n_domains ; i++)
     {
       char subq[DNS_MAX_ESCAPED_LEN];
       strncpy(subq, query, len);
       strcpy(subq+len, domains[i]);
-      io_req_add_query(ioreq, subq, qtype);
+      io_req_add_query(ioreq, subq, dq);
     }
 }
 
@@ -90,6 +92,7 @@ bool b_query_start(io_query ioq)
   m->id = q->id;
   m->h = DNS_H_RD;
   m->qdcount = 1;
+  TO_BE16(m);
   uint8_t *p = buf + sizeof(*m);
   int complen = escaped2ll(ioq->query, p, eom - p);
   if (complen < 0)
@@ -100,6 +103,7 @@ bool b_query_start(io_query ioq)
   if (p > eom)
     return false;
   *dq = ioq->dq;
+  TO_BE16(dq);
   return (sendto(req->ufd.fd, buf, p-buf, 0,
                  (struct sockaddr *)&sin6, sizeof(sin6)) > 0);
 }
@@ -131,10 +135,28 @@ int b_produce_reply(io_request ioreq, uint8_t *buf, int buf_len)
 
   dns_msg m = (dns_msg) buf;
   memset(m, 0, sizeof(*m));
-  m->h = DNS_H_QR | DNS_H_AA;
+  m->h = DNS_H_QR;
   m->id = ioreq->dnsid;
   uint8_t *p = buf + sizeof(*m), *eom = buf + buf_len;
+  uint8_t ofs = p - buf;
 
+  m->qdcount = 1;
+  int complen = escaped2ll(req->query, p, eom - p);
+  if (complen <= 0)
+    {
+      L_DEBUG("too big name?!?");
+      return 0;
+    }
+  p += complen;
+  dns_query dq = (dns_query) p;
+  p += sizeof(*dq);
+  if (p > eom)
+    {
+      L_DEBUG("too big name?!?");
+      return 0;
+    }
+  *dq = req->dq;
+  TO_BE16(dq);
   list_for_each_entry(ioq, &ioreq->queries, head)
     {
       q = ioq->b_private;
@@ -143,12 +165,11 @@ int b_produce_reply(io_request ioreq, uint8_t *buf, int buf_len)
       io_rr rr;
       list_for_each_entry(rr, &ioq->rrs, head)
         {
-          int complen = escaped2ll(req->query, p, eom - p);
-          if (complen <= 0)
-            {
-              /* msg->h |= DNS_H_TC; */
-              break;
-            }
+          if (p + 2 > eom)
+            break;
+          *p = 64 | 128;
+          *(p+1) = ofs;
+          complen = 2;
           int rrlen = sizeof(rr->drr) + rr->drr.rdlen;
           int len = complen + rrlen;
           if (p + len > eom)
@@ -156,7 +177,8 @@ int b_produce_reply(io_request ioreq, uint8_t *buf, int buf_len)
           memcpy(p+complen, &rr->drr, rrlen);
           dns_rr drr = (dns_rr) (p + complen);
           TO_BE16(drr);
-          p += complen + len;
+          p += len;
+          m->ancount++;
         }
     }
   if (!m->ancount)
@@ -259,7 +281,25 @@ static void _handle_udp(struct uloop_fd *ufd, __unused unsigned int events)
             L_DEBUG("last record too big (rrdata)");
             break;
           }
-        io_query_add_rr(ioq, domain, rr, rr->rdata);
+        if (m->ancount)
+          {
+            m->ancount--;
+            io_query_add_rr(ioq, domain, rr, rr->rdata);
+          }
+        else if (m->nscount)
+          {
+            m->nscount--;
+          }
+        else if (m->arcount)
+          {
+            m->arcount--;
+          }
+        else
+          {
+            L_DEBUG("bonus RR?!?");
+            valid = false;
+            break;
+          }
       }
     if (valid)
       {

@@ -7,8 +7,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:38:37 2014 mstenber
- * Last modified: Sat Sep 12 11:39:36 2015 mstenber
- * Edit time:     80 min
+ * Last modified: Sat Sep 12 13:06:50 2015 mstenber
+ * Edit time:     81 min
  *
  */
 
@@ -232,9 +232,9 @@ _service_callback(DNSServiceRef service __unused,
           const char *qb = TO_DNS(req->interface, buf);
           if (!qb)
             return;
-          if ((nq = io_req_add_query(req->io, qb, kDNSServiceType_SRV)))
+          if ((nq = io_req_add_query_t(req->io, qb, kDNSServiceType_SRV)))
             io_query_start(nq);
-          if ((nq = io_req_add_query(req->io, qb, kDNSServiceType_TXT)))
+          if ((nq = io_req_add_query_t(req->io, qb, kDNSServiceType_TXT)))
             io_query_start(nq);
         }
       break;
@@ -252,9 +252,9 @@ _service_callback(DNSServiceRef service __unused,
         const char *qb = TO_DNS(req->interface, buf);
         if (!qb)
             return;
-        if ((nq = io_req_add_query(req->io, qb, kDNSServiceType_AAAA)))
+        if ((nq = io_req_add_query_t(req->io, qb, kDNSServiceType_AAAA)))
           io_query_start(nq);
-        if ((nq = io_req_add_query(req->io, qb, kDNSServiceType_A)))
+        if ((nq = io_req_add_query_t(req->io, qb, kDNSServiceType_A)))
           io_query_start(nq);
       }
       probably_cf = true;
@@ -694,7 +694,7 @@ int b_produce_reply(io_request ioreq,
   return fallback_result;
 }
 
-void b_req_set_query(io_request req, const char *query, uint16_t qtype)
+void b_req_set_query(io_request req, const char *query, dns_query dq)
 {
-  io_req_add_query(req, query, qtype);
+  io_req_add_query(req, query, dq);
 }

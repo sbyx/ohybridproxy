@@ -89,7 +89,7 @@ int nusock(const char *host, int port, int t);
 /*************************************************** IO structure API (io.c) */
 
 /* Add query (if it does not already exist); only new query is returned. */
-io_query io_req_add_query(io_request req, const char *query, uint16_t qtype);
+io_query io_req_add_query(io_request req, const char *query, dns_query qd);
 
 /* Start/Stop whole request */
 void io_req_start(io_request req);
@@ -112,7 +112,7 @@ void io_req_free(io_request req);
 
 /* Set the initial query received from the client
  * (typically, just adding it using io_req_add_query may be enough) */
-void b_req_set_query(io_request req, const char *query, uint16_t qtype);
+void b_req_set_query(io_request req, const char *query, dns_query qd);
 
 /* Start/stop processing of a query. */
 bool b_query_start(io_query q);
@@ -142,4 +142,11 @@ static inline io_time_t io_time(void) {
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 	return ((io_time_t)ts.tv_sec * IO_TIME_PER_SECOND) +
 			((io_time_t)ts.tv_nsec / (1000000000 / IO_TIME_PER_SECOND));
+}
+
+static inline
+io_query io_req_add_query_t(io_request req, const char *query, uint16_t t)
+{
+  struct dns_query dq = { .qtype = t, .qclass = DNS_CLASS_IN };
+  return io_req_add_query(req, query, &dq);
 }

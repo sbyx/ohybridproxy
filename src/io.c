@@ -132,7 +132,9 @@ void io_req_start(io_request req)
   list_add(&req->lh, &active_requests);
   req->started = true;
   if (maximum_duration)
-    uloop_timeout_set(&req->timeout, maximum_duration);
+    {
+      uloop_timeout_set(&req->timeout, maximum_duration);
+    }
   req->timeout.cb = _request_timeout;
   list_for_each_entry(q, &req->queries, head)
     if (!io_query_start(q))
@@ -140,16 +142,16 @@ void io_req_start(io_request req)
 }
 
 io_query
-io_req_add_query(io_request req, const char *query, uint16_t qtype)
+io_req_add_query(io_request req, const char *query, dns_query dq)
 {
   io_query q;
 
-  L_DEBUG("adding query %s/%d to %p", query, qtype, req);
+  L_DEBUG("adding query %s/%d to %p", query, dq->qtype, req);
   list_for_each_entry(q, &req->queries, head)
     {
       uint16_t oqtype = q->dq.qtype;
       if (strcmp(q->query, query) == 0
-          && (oqtype == qtype
+          && (oqtype == dq->qtype
               || oqtype == DNS_SERVICE_ANY))
         {
           L_DEBUG(" .. but it already exists");
@@ -165,8 +167,7 @@ io_req_add_query(io_request req, const char *query, uint16_t qtype)
       free(q);
       return NULL;
     }
-  q->dq.qtype = qtype;
-  q->dq.qclass = DNS_CLASS_IN;
+  q->dq = *dq;
   q->request = req;
   INIT_LIST_HEAD(&q->rrs);
   list_add_tail(&q->head, &req->queries);
@@ -184,6 +185,8 @@ io_query_add_rr(io_query q, const char *rrname, dns_rr drr, const void *rdata)
       free(rr);
       return NULL;
     }
+  L_DEBUG("adding rr %s / %d.%d ttl %d (%d rrdata)", rrname,
+          drr->rrtype, drr->rrclass, drr->ttl, drr->rdlen);
   rr->drr = *drr;
   memcpy(rr->drr.rdata, rdata, drr->rdlen);
   list_add(&rr->head, &q->rrs);
