@@ -1,5 +1,5 @@
 The 'new' architecture implemented after the code was split to
-ohybridproxy+zonestitcher works as follows: There are essentially 4
+ohybridproxy+zonestitcher works as follows: There are essentially 5
 components to a DNS 'toy':
 
 - main (that deals with setting up the other parts + starts event loop)
@@ -10,6 +10,9 @@ components to a DNS 'toy':
 - generic request abstraction (io.c) - it handles 'requests', which
   compromise of one or more queries, that are started and stopped.
 
+- cache of results / pending requests (cache.c) - storage of rr lists of
+  what we have found from somewhere
+
 - backend that actually handles query, and possibly starts sub-queries as well
 
 Actual call flow:
@@ -19,19 +22,20 @@ Actual call flow:
 - main calls io_run(), and then (socket.c) creates sockets and starts uloop
 
 - when new request shows up, (~per-session/message) request structure is
-  added it's first query (io_req_add_query), and it is started
-  (io_req_start).
+  added and it's regiestered with the cache (cache_register_request). That
+  triggers either start of request (eventual io_req_start), wait for other
+  request, or immediate reply if result is cached (io_send_reply)
+
+.. assuming we started new request ..
 
 - (io.c) io_req_start calls io_query_start, and then b_query_start (which
   may fail immediately, or not)
 
 .. backend runs the queries, now and then calling io_query_stop to indicate
-a single query has completed ..
+a single query has completed, and storing results in the rrlist of cache
+entry ..
 
-- (io.c) when last io_query_stop is received, b_queries_done is called and
-  backend can react. Typically io_send_reply is the correct thing to do
-  here, regardless if actual reply is _desired_; the io_send_reply leads to
-  clean-up path in socket.c. The actual reply is produced by
-  b_produce_reply, and if nothing is returned, no actual reply is sent to
-  the client.
+- (io.c) when last io_query_stop is received, cache_entry_completed is
+  called and that results in io_send_reply to the pending request(s); it
+  leads to clean-up path in socket.c even if there is nothing to be said. 
 

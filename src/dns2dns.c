@@ -25,6 +25,7 @@
 #include "dns2dns.h"
 #include "io.h"
 #include "dns_util.h"
+#include "cache.h"
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -121,80 +122,6 @@ void b_query_free(io_query q)
   free(q->b_private);
 }
 
-void b_queries_done(io_request req)
-{
-  io_send_reply(req);
-}
-
-int b_produce_reply(io_request ioreq, uint8_t *buf, int buf_len)
-{
-  d2d_request req = ioreq->b_private;
-  io_query ioq;
-  d2d_query q = NULL;
-  bool unsure = false;
-
-  dns_msg m = (dns_msg) buf;
-  memset(m, 0, sizeof(*m));
-  m->h = DNS_H_QR;
-  m->id = ioreq->dnsid;
-  uint8_t *p = buf + sizeof(*m), *eom = buf + buf_len;
-  uint8_t ofs = p - buf;
-
-  m->qdcount = 1;
-  int complen = escaped2ll(req->query, p, eom - p);
-  if (complen <= 0)
-    {
-      L_DEBUG("too big name?!?");
-      return 0;
-    }
-  p += complen;
-  dns_query dq = (dns_query) p;
-  p += sizeof(*dq);
-  if (p > eom)
-    {
-      L_DEBUG("too big name?!?");
-      return 0;
-    }
-  *dq = req->dq;
-  TO_BE16(dq);
-  list_for_each_entry(ioq, &ioreq->queries, head)
-    {
-      q = ioq->b_private;
-      if (!q->replied)
-        unsure = true;
-      io_rr rr;
-      list_for_each_entry(rr, &ioq->rrs, head)
-        {
-          if (p + 2 > eom)
-            break;
-          *p = 64 | 128;
-          *(p+1) = ofs;
-          complen = 2;
-          int rrlen = sizeof(rr->drr) + rr->drr.rdlen;
-          int len = complen + rrlen;
-          if (p + len > eom)
-            break;
-          memcpy(p+complen, &rr->drr, rrlen);
-          dns_rr drr = (dns_rr) (p + complen);
-          TO_BE16(drr);
-          p += len;
-          m->ancount++;
-        }
-    }
-  if (!m->ancount)
-    {
-      if (unsure)
-        {
-          L_DEBUG("unsure and no answers -> playing dead");
-          return 0;
-        }
-      L_DEBUG("NXDOMAIN, we got response from everyone + nothing in there");
-      m->h |= DNS_H_RCODE(DNS_RCODE_NXDOMAIN);
-    }
-  TO_BE16(m);
-  return p - buf;
-}
-
 static void _handle_udp(struct uloop_fd *ufd, __unused unsigned int events)
 {
   union {
@@ -284,7 +211,7 @@ static void _handle_udp(struct uloop_fd *ufd, __unused unsigned int events)
         if (m->ancount)
           {
             m->ancount--;
-            io_query_add_rr(ioq, domain, rr, rr->rdata);
+            rrlist_add_rr(&ioq->request->e->an, domain, rr, rr->rdata);
           }
         else if (m->nscount)
           {
@@ -305,7 +232,11 @@ static void _handle_udp(struct uloop_fd *ufd, __unused unsigned int events)
       {
         L_DEBUG("got valid reply, shocking");
         q->replied = true;
-        io_query_stop(ioq);
+        /* Two options here; either optimistically just stop this
+         * query, or stop whole request. The later results in better
+         * performance so opting for that for now. */
+        /* io_query_stop(ioq); */
+        io_req_stop(req->io);
       }
   }
 }

@@ -1,18 +1,4 @@
-- implement cache (just to prevent bad effects of e.g. retransmissions
-  if we have long queries)
- - use same result for multiple clients
- - positive / negative / inconclusive states
- (relatively short-lived)
- [ keep full lists per qtype ]
-
-- also formalize the 'result' sending ; just dump of matching info in
-  cache, unified for all backends
-=> no need for ad hoc reply sending
-=> need to have the original 'query' stored in the request (or at
-least pointer to a cache entry)
-
-- make sure NXDOMAIN handling is correct; currently perhaps sending
-  the response back too keenly?
+- add NXDOMAIN handling back if it feels correct at some point..
 
 (to be able to do NXDOMAIN, we should by default do qtype=all, and
 based on existence of non-matching record or not do NOERROR or

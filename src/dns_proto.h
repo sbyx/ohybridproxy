@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 14:41:31 2014 mstenber
- * Last modified: Fri Sep 11 12:35:29 2015 mstenber
- * Edit time:     13 min
+ * Last modified: Sat Sep 12 20:03:57 2015 mstenber
+ * Edit time:     16 min
  *
  */
 
@@ -43,6 +43,9 @@ typedef struct __packed dns_msg {
 
 #define DNS_CLASS_IN 1
 #define DNS_SERVICE_ANY 255
+#define DNS_SERVICE_SRV 33
+#define DNS_SERVICE_PTR 12
+
 
 typedef struct __packed dns_query {
   /* Preceded by label list */

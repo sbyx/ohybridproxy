@@ -16,13 +16,6 @@
 #include <libubox/list.h>
 #include <libubox/uloop.h>
 
-typedef struct io_rr {
-  struct list_head head;
-
-  char *name;
-  struct dns_rr drr;
-} *io_rr;
-
 typedef struct io_query {
   struct list_head head;
 
@@ -33,9 +26,6 @@ typedef struct io_query {
   /* Backpointer to the request we are in. */
   struct io_request *request;
 
-  /* The results of the particular (sub-)query. */
-  struct list_head rrs;
-
   /* Private data pointer for the backend */
   void *b_private;
 } *io_query;
@@ -44,6 +34,9 @@ typedef struct io_query {
 typedef struct io_request {
   /* A list of _active_ requests (start called, but not yet stop). */
   struct list_head lh;
+
+  /* Within cache entry's list of requests */
+  struct list_head in_cache;
 
   /* Information from the DNS request by client. */
   uint16_t dnsid;
@@ -60,6 +53,9 @@ typedef struct io_request {
 
   /* Is it started at all? */
   bool started;
+
+  /* The cache entry we are populating */
+  struct cache_entry *e;
 
   /* Have we sent a response already? (refactor this to be rr-specific
    * in LLQ case). */
@@ -81,7 +77,7 @@ int io_run(const char *bindaddr, int bindport, int default_timeout_ms);
 void io_reset();
 
 /* Called by the backend, when it thinks it's done */
-void io_send_reply(io_request req);
+void io_send_reply(io_request req, uint8_t *buf, ssize_t buf_len);
 
 /* Utility function to create a socket */
 int nusock(const char *host, int port, int t);
@@ -101,9 +97,6 @@ bool io_query_start(io_query q);
 /* Stop processing; return true if some query is still alive */
 bool io_query_stop(io_query q);
 
-/* Add RR to the query results */
-io_rr io_query_add_rr(io_query q, const char *rrname, dns_rr drr, const void *rdata);
-
 /* Initialize/free io-side structures of a request */
 void io_req_init(io_request req);
 void io_req_free(io_request req);
@@ -120,13 +113,6 @@ void b_query_stop(io_query q);
 
 /* Free the b_private, if any */
 void b_query_free(io_query q);
-
-/* All queries are done */
-void b_queries_done(io_request req);
-
-/* Produce reply to the pre-allocated buffer. Return value is the
- * number of bytes used, or -1 if the reply buffer is too small. */
-int b_produce_reply(io_request req, uint8_t *buf, int buf_len);
 
 /* Initialize/free backend-side structures of a request */
 void b_req_init(io_request req);

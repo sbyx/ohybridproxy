@@ -10,6 +10,7 @@
 
 #include "io.h"
 #include "dns_util.h"
+#include "cache.h"
 
 #include <errno.h>
 
@@ -42,7 +43,7 @@ bool io_query_start(io_query q)
       return true;
     }
   if (!q->request->running)
-    b_queries_done(q->request);
+    cache_entry_completed(q->request->e);
   return false;
 }
 
@@ -52,7 +53,7 @@ bool io_query_stop(io_query q)
   b_query_stop(q);
   if (!(--q->request->running))
     {
-      b_queries_done(q->request);
+      cache_entry_completed(q->request->e);
       return false;
     }
   return true;
@@ -65,19 +66,10 @@ void io_req_init(io_request req)
   INIT_LIST_HEAD(&req->queries);
 }
 
-static void _rr_free(io_rr rr)
-{
-  free(rr->name);
-  list_del(&rr->head);
-  free(rr);
-}
-
 static void _query_free(io_query q)
 {
   b_query_free(q);
   list_del(&q->head);
-  while (!list_empty(&q->rrs))
-    _rr_free(list_first_entry(&q->rrs, struct io_rr, head));
   free(q->query);
   free(q);
 }
@@ -169,26 +161,7 @@ io_req_add_query(io_request req, const char *query, dns_query dq)
     }
   q->dq = *dq;
   q->request = req;
-  INIT_LIST_HEAD(&q->rrs);
   list_add_tail(&q->head, &req->queries);
   return q;
 }
 
-io_rr
-io_query_add_rr(io_query q, const char *rrname, dns_rr drr, const void *rdata)
-{
-  io_rr rr = calloc(1, sizeof(*rr) + drr->rdlen);
-  if (!rr)
-    return NULL;
-  if (!(rr->name = strdup(rrname)))
-    {
-      free(rr);
-      return NULL;
-    }
-  L_DEBUG("adding rr %s / %d.%d ttl %d (%d rrdata)", rrname,
-          drr->rrtype, drr->rrclass, drr->ttl, drr->rdlen);
-  rr->drr = *drr;
-  memcpy(rr->drr.rdata, rdata, drr->rdlen);
-  list_add(&rr->head, &q->rrs);
-  return rr;
-}

@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Thu Jan  9 11:13:07 2014 mstenber
- * Last modified: Sat Sep 12 10:38:47 2015 mstenber
- * Edit time:     25 min
+ * Last modified: Sat Sep 12 21:15:15 2015 mstenber
+ * Edit time:     29 min
  *
  */
 
@@ -16,24 +16,18 @@
 #include "dns2mdns.h"
 #include "dns2mdns.c"
 #include "io.c"
+#include "cache.c"
 
 #include <assert.h>
 #include <string.h>
 
 io_time_t maximum_duration = MAXIMUM_REQUEST_DURATION_IN_MS;
+bool done = false;
 
-void io_send_reply(io_request req)
+void io_send_reply(io_request req __unused, uint8_t *buf __unused, ssize_t len)
 {
-  /* Test reply production - with too small, and sufficient buffer. */
-  unsigned char buf[65535];
-  int r;
-
-  /* Too small payload tests are now in test_dns2mdns. */
-  memset(buf, 42, sizeof(buf));
-  r = b_produce_reply(req, buf, sizeof(buf));
-  assert(r > 0);
-  assert(buf[r] == 42);
-  L_DEBUG("d2m_produce_reply produced %d bytes of something", r);
+  L_DEBUG("io_send_reply - produced %d bytes of something", (int)len);
+  done = true;
   uloop_end();
 }
 
@@ -57,11 +51,15 @@ int main(int argc, char **argv)
   io_req_init(&r);
   if (!d2m_add_interface(argv[1], "home"))
     exit(1);
-  io_req_add_query(&r, argv[2],
-                   argc > 3 ? atoi(argv[3]) : kDNSServiceType_ANY);
-  io_req_start(&r);
-  L_INFO("Entering event loop");
-  uloop_run();
+  struct dns_query dq = { .qtype =
+                          argc > 3 ? atoi(argv[3]) : kDNSServiceType_ANY,
+                          .qclass = DNS_CLASS_IN };
+  cache_register_request(&r, argv[2], &dq);
+  if (!done)
+    {
+      L_INFO("Entering event loop");
+      uloop_run();
+    }
 
   /* Clean up - hopefully we won't leak memory if we do it right. */
   io_req_free(&r);

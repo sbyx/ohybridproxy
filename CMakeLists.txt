@@ -16,10 +16,12 @@ else(${APPLE})
 set(dns_sd "dns_sd")
 endif(${APPLE})
 
-add_executable(ohybridproxy src/ohybridproxy.c src/io.c src/dns2mdns.c src/socket.c)
+set(CORE src/cache.c src/io.c src/socket.c)
+
+add_executable(ohybridproxy src/ohybridproxy.c src/dns2mdns.c ${CORE})
 target_link_libraries(ohybridproxy ubox ${dns_sd})
 
-add_executable(zonestitcher src/zonestitcher.c src/io.c src/dns2dns.c src/socket.c)
+add_executable(zonestitcher src/zonestitcher.c src/dns2dns.c ${CORE})
 target_link_libraries(zonestitcher ubox)
 
 # Unit test stuff

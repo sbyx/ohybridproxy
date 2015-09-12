@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 11:41:22 2014 mstenber
- * Last modified: Sat Sep 12 11:40:46 2015 mstenber
- * Edit time:     94 min
+ * Last modified: Sat Sep 12 21:28:56 2015 mstenber
+ * Edit time:     96 min
  *
  */
 
@@ -259,6 +259,7 @@ int ll2escaped(const uint8_t *base, const uint8_t *ll, int ll_left, char *escape
             }
           if (c & (64|128))
             {
+              L_DEBUG("high-order bits set in length");
               return DNS_RESULT_ERROR;
             }
           ll_left -= c;

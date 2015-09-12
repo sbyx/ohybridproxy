@@ -6,7 +6,7 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:23:19 2014 mstenber
- * Last modified: Sat Sep 12 10:36:42 2015 mstenber
+ * Last modified: Sat Sep 12 20:33:44 2015 mstenber
  * Edit time:     1 min
  *
  */
@@ -27,6 +27,9 @@
 typedef struct ohp_query {
   /* Backpointer to the io structure we are in */
   struct io_query *io;
+
+  /* Is it the 'authoritative' query? */
+  bool initial;
 
   /* Replace DNS reply names with original query name (relevant with .arpa.) */
   bool use_query_name_in_reply;

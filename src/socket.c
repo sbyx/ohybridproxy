@@ -47,35 +47,31 @@ struct io_request_udp {
 
 io_time_t maximum_duration;
 
-void io_send_reply(io_request req)
+void io_send_reply(io_request req, uint8_t *buf, ssize_t len)
 {
   if (req->sent)
     return;
   req->sent = true;
 
-	if (req->udp) {
-		struct io_request_udp *udp = container_of(req, struct io_request_udp, req);
-		uint8_t *buf = alloca(req->maxlen);
-		int len = b_produce_reply(req, buf, req->maxlen);
-		if (len > 0)
-			sendto(udpsrv.fd, buf, len, 0, udp->addr, udp->addrlen);
-		io_req_free(req);
-		free(udp);
-	} else {
-		struct io_request_tcp *tcp = container_of(req, struct io_request_tcp, req);
-		uint8_t *buf = alloca(req->maxlen + 2);
-		int len = b_produce_reply(req, &buf[2], req->maxlen);
-		if (len > 0) {
-			buf[0] = (len >> 8) & 0xff;
-			buf[1] = (len >> 0) & 0xff;
-			ustream_write(&tcp->conn.stream, (char*)buf, req->maxlen + 2, false);
-			uloop_timeout_set(&tcp->conn.stream.state_change, 3000); // TODO: Define write timeout
-			io_handle_tcp_write(&tcp->conn.stream, 0); // Check if writing was immediate
-		} else {
-			io_handle_tcp_done(&tcp->conn.stream);
-		}
+  if (req->udp) {
+    struct io_request_udp *udp = container_of(req, struct io_request_udp, req);
+    if (len > 0)
+      sendto(udpsrv.fd, buf, len, 0, udp->addr, udp->addrlen);
+    io_req_free(req);
+    free(udp);
+    return;
+  }
 
-	}
+  struct io_request_tcp *tcp = container_of(req, struct io_request_tcp, req);
+  if (len > 0) {
+    char tbuf[2] = { (len >> 8) & 0xff, (len >> 0) & 0xff };
+    ustream_write(&tcp->conn.stream, (char*)tbuf, 2, false);
+    ustream_write(&tcp->conn.stream, (char*)buf, len, false);
+    uloop_timeout_set(&tcp->conn.stream.state_change, 3000); // TODO: Define write timeout
+    io_handle_tcp_write(&tcp->conn.stream, 0); // Check if writing was immediate
+  } else {
+    io_handle_tcp_done(&tcp->conn.stream);
+  }
 }
 
 
@@ -305,4 +301,3 @@ int io_run(const char *bindaddr, int bindport, int default_timeout_ms)
 	uloop_run();
 	return 0;
 }
-

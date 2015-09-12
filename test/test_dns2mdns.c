@@ -6,8 +6,8 @@
  * Copyright (c) 2014 cisco Systems, Inc.
  *
  * Created:       Wed Jan  8 17:30:07 2014 mstenber
- * Last modified: Sat Sep 12 11:41:11 2015 mstenber
- * Edit time:     84 min
+ * Last modified: Sat Sep 12 21:25:36 2015 mstenber
+ * Edit time:     102 min
  *
  */
 
@@ -45,6 +45,7 @@ DNSServiceErrorType dummy_DNSServiceQueryRecord(DNSServiceRef *service,
 
 #include "dns2mdns.c"
 #include "io.c"
+#include "cache.c"
 
 io_time_t maximum_duration = MAXIMUM_REQUEST_DURATION_IN_MS;
 
@@ -81,19 +82,19 @@ void check_reply_range(struct ohp_request *req, int r1, int r2)
   for (i = r1 ; i < r2 ; i++)
     {
       buf[i+1] = 42;
-      r = b_produce_reply(req->io, buf, i);
+      r = _entry_to_reply(req->io->e, req->io, buf, i);
       sput_fail_unless(r == r1, "same result");
       sput_fail_unless(buf[i+1] == 42, "canary alive");
     }
 }
 
-void io_send_reply(io_request ioreq)
+void io_send_reply(io_request ioreq, uint8_t *obuf, ssize_t olen)
 {
   ohp_request req = ioreq->b_private;
 
   smock_pull("ohpsr");
   uint8_t buf[512];
-  int or, r = b_produce_reply(req->io, buf, sizeof(buf));
+  int or, r = _entry_to_reply(ioreq->e, ioreq, buf, sizeof(buf));
   dns_msg msg;
 
   L_DEBUG("sufficient buffer reply got %d", r);
@@ -107,7 +108,7 @@ void io_send_reply(io_request ioreq)
 
   /* Fallback - no additional records */
   or = r;
-  r = b_produce_reply(req->io, buf, r - 1);
+  r = _entry_to_reply(ioreq->e, ioreq, buf, r - 1);
   L_DEBUG("short push 1 got %d", r);
   sput_fail_unless(r > (int)sizeof(*msg),
                    "enough bytes from d2m_produce_reply");
@@ -120,7 +121,7 @@ void io_send_reply(io_request ioreq)
 
   /* Fallback 2 - no records (just TC bit) */
   or = r;
-  r = b_produce_reply(req->io, buf, r-1);
+  r = _entry_to_reply(ioreq->e, ioreq, buf, r - 1);
   L_DEBUG("short push 2 got %d", r);
   sput_fail_unless(r > (int)sizeof(*msg),
                    "enough bytes from d2m_produce_reply");
@@ -132,7 +133,7 @@ void io_send_reply(io_request ioreq)
   check_reply_range(req, r, or);
 
   /* Shorter than that should result in error */
-  r = b_produce_reply(req->io, buf, r-1);
+  r = _entry_to_reply(ioreq->e, ioreq, buf, r - 1);
   L_DEBUG("short push 3 got %d", r);
   sput_fail_unless(r < 0, "really short buffer should be error");
 }
@@ -156,13 +157,15 @@ void check_dns2mdns(void)
   io_req_init(&ioreq);
   ohp_request req = ioreq.b_private;
 
-  ioq = io_req_add_query(&ioreq, "test.home.", kDNSServiceType_ANY);
-  sput_fail_unless(ioq, "d2m_req_add_query failed");
-
+  /* Adding it will immediately trigger these */
   smock_push("dnsqr_name", "test.local.");
   smock_push_int("dnsqr_rrtype", kDNSServiceType_ANY);
   smock_push_int("dnsqr_result", kDNSServiceErr_NoError);
-  io_req_start(&ioreq);
+
+  struct dns_query dq = { .qtype = kDNSServiceType_ANY, .qclass = DNS_CLASS_IN };
+  cache_entry e = cache_register_request(&ioreq, "test.home.", &dq);
+  sput_fail_unless(e, "cache_register_request failed");
+  ioq = list_first_entry(&ioreq.queries, struct io_query, head);
   smock_is_empty();
 
   sput_fail_unless(req->io->running == 1, "1 running");
