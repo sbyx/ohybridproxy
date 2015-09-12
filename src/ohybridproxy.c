@@ -20,11 +20,14 @@
 
 #include <libubox/uloop.h>
 
+static const char *bindaddr = "::";
+static int bindport = 53;
+
 void show_help(const char *prog)
 {
 	printf("%s [-a <ip>] [-p <port>] [-h] <ifname>=<domain> [<ifname>=<domain> ..]\n", prog);
-	printf(" -a binds to specific IP address\n");
-	printf(" -p binds to specific UDP port (default 53)\n");
+	printf(" -a binds to specific IP address (default %s)\n", bindaddr);
+	printf(" -p binds to specific UDP port (default %d)\n", bindport);
 
 	printf(" -h shows this help\n\n");
 	printf(" For the given <ifname>(s), matching <domain> requests are mapped to .local\n"
@@ -35,8 +38,6 @@ int main(int argc, char *const argv[])
 {
 	const char *prog = argv[0];
 	int c, i;
-	const char *bindaddr = "::";
-	int bindport = 53;
 
 	openlog("ohybridproxy", LOG_PERROR | LOG_PID, LOG_DAEMON);
 	uloop_init();
