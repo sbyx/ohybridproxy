@@ -7,8 +7,8 @@
  * Copyright (c) 2015 cisco Systems, Inc.
  *
  * Created:       Sat Sep 12 19:18:06 2015 mstenber
- * Last modified: Mon Sep 14 13:42:47 2015 mstenber
- * Edit time:     50 min
+ * Last modified: Mon Sep 14 16:07:02 2015 mstenber
+ * Edit time:     58 min
  *
  */
 
@@ -17,8 +17,8 @@
 
 #include <string.h>
 
-/* just 5 seconds of caching :-p */
-#define CACHE_TTL 5000
+/* cache the negative entries this long. */
+#define NEGATIVE_CACHE_TTL 5
 
 /* This is super-inefficient; however, if it ever becomes really a
  * problem, this is being used at too large scale already. So hello,
@@ -369,9 +369,19 @@ cache_entry cache_register_request(io_request req, char *query, dns_query dq)
 void cache_entry_completed(cache_entry e)
 {
   io_request req, req2;
+  uint32_t lowest_ttl = 0xFFFFFFFF;
+  cache_rr rr;
 
   e->cached_at = io_time();
-  e->valid_until = e->cached_at + CACHE_TTL;
+  list_for_each_entry(rr, &e->an, head)
+    if (rr->drr.ttl < lowest_ttl)
+      lowest_ttl = rr->drr.ttl;
+  list_for_each_entry(rr, &e->ar, head)
+    if (rr->drr.ttl < lowest_ttl)
+      lowest_ttl = rr->drr.ttl;
+  if (lowest_ttl == 0xFFFFFFFF)
+    lowest_ttl = NEGATIVE_CACHE_TTL;
+  e->valid_until = e->cached_at + ((io_time_t)lowest_ttl-1) * IO_TIME_PER_SECOND;
   list_for_each_entry_safe(req, req2, &e->requests, in_cache)
     {
       _entry_complete(e, req);
