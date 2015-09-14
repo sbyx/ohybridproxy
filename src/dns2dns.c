@@ -201,8 +201,10 @@ static void _handle_udp(struct uloop_fd *ufd, __unused unsigned int events)
             L_DEBUG("last record too big (name/rr-header)");
             break;
           }
-        FROM_BE16(rr);
-        name += rr->rdlen;
+        struct dns_rr local_rr = *rr;
+        FROM_BE16(&local_rr);
+        local_rr.ttl = be32_to_cpu(rr->ttl);
+        name += local_rr.rdlen;
         if (name > eom)
           {
             valid = false;
@@ -212,7 +214,7 @@ static void _handle_udp(struct uloop_fd *ufd, __unused unsigned int events)
         if (m->ancount)
           {
             m->ancount--;
-            rrlist_add_rr(&ioq->request->e->an, domain, rr, rr->rdata);
+            rrlist_add_rr(&ioq->request->e->an, domain, &local_rr, rr->rdata);
           }
         else if (m->nscount)
           {
