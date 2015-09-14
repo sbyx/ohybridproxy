@@ -185,9 +185,15 @@ static void io_handle_tcp_data(struct ustream *s, __unused int bytes_new)
 	uloop_timeout_cancel(&tcp->conn.stream.state_change);
 }
 
+/* Global 'lock' to prevent the recursive write notifications. Not
+ * pretty, but works. */
+static bool in_tcp_write = false;
+
 // Write notification
 static void io_handle_tcp_write(struct ustream *fd, __unused int bytes)
 {
+	if (in_tcp_write) return;
+	in_tcp_write = true;
 	if (ustream_write_pending(fd)) {
 		// Wrote response, recycle session
 		struct ustream_fd *ufd = container_of(fd, struct ustream_fd, stream);
@@ -195,6 +201,7 @@ static void io_handle_tcp_write(struct ustream *fd, __unused int bytes)
 		io_req_free(&tcp->req);
 		io_req_init(&tcp->req);
 	}
+	in_tcp_write = false;
 }
 
 // TCP transmission has ended, either because of success or timeout or other error
