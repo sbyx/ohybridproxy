@@ -1,9 +1,11 @@
+- dns->dns TCP support
+
 - add NXDOMAIN handling back if it feels correct at some point..
 
 (to be able to do NXDOMAIN, we should by default do qtype=all, and
 based on existence of non-matching record or not do NOERROR or
 NXDOMAIN )
  
-- OpenWrt mdnsd backend?
+- OpenWrt mdnsd backend (as opposed to mDNSResponder)?
 
 
