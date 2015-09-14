@@ -7,7 +7,7 @@
  * Copyright (c) 2015 cisco Systems, Inc.
  *
  * Created:       Sat Sep 12 19:18:06 2015 mstenber
- * Last modified: Sat Sep 12 21:42:44 2015 mstenber
+ * Last modified: Mon Sep 14 13:42:47 2015 mstenber
  * Edit time:     50 min
  *
  */
@@ -226,6 +226,7 @@ static int _entry_to_reply(cache_entry e, io_request req,
   const size_t saved_max = 128;
   uint8_t *saved[saved_max];
   int ttl_ofs = (io_time() - e->cached_at) / IO_TIME_PER_SECOND;
+  bool fit_an = false;
 
   _init_deduplicate(saved, saved_max, buf);
   PUSH(msg);
@@ -243,9 +244,9 @@ static int _entry_to_reply(cache_entry e, io_request req,
   r = _reply_push_rr_list(&e->an, ttl_ofs, buf, buf_len, &msg->ancount, saved, saved_max);
   if (r == DNS_RESULT_OOB)
     goto oob;
-
   buf += r;
   buf_len -= r;
+  fit_an = true;
 
   r = _reply_push_rr_list(&e->ar, ttl_ofs, buf, buf_len, &msg->arcount, saved, saved_max);
   if (r == DNS_RESULT_OOB)
@@ -258,7 +259,7 @@ static int _entry_to_reply(cache_entry e, io_request req,
   if (msg)
     {
       /* If all answers didn't fit in either, clear ancount + return TC. */
-      if (!msg->ancount)
+      if (!fit_an && !msg->ancount)
         msg->h |= DNS_H_TC;
       TO_BE16(msg);
       if (msg->qdcount == 0)
