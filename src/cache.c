@@ -7,8 +7,8 @@
  * Copyright (c) 2015 cisco Systems, Inc.
  *
  * Created:       Sat Sep 12 19:18:06 2015 mstenber
- * Last modified: Mon Sep 14 16:07:02 2015 mstenber
- * Edit time:     58 min
+ * Last modified: Tue Sep 15 11:47:20 2015 mstenber
+ * Edit time:     69 min
  *
  */
 
@@ -19,6 +19,9 @@
 
 /* cache the negative entries this long. */
 #define NEGATIVE_CACHE_TTL 5
+
+/* maximum TTL we want to store */
+#define MAXIMUM_TTL 120
 
 /* This is super-inefficient; however, if it ever becomes really a
  * problem, this is being used at too large scale already. So hello,
@@ -139,8 +142,6 @@ static int _reply_push_rr(cache_rr rr, uint32_t ttl_ofs,
   int r;
   dns_rr dr;
 
-  if (ttl_ofs > rr->drr.ttl)
-    return 0;
   PUSH_EXPANDED(rr->name, saved, saved_max);
   PUSH(dr);
   *dr = rr->drr;
@@ -183,7 +184,12 @@ static int _reply_push_rr(cache_rr rr, uint32_t ttl_ofs,
   dr->rdlen = buf - orbuf;
   TO_BE16(dr);
   /* TO_BE16 won't cover BE32 -> convert TTL separately here. */
-  dr->ttl = cpu_to_be32(rr->drr.ttl - ttl_ofs);
+  uint32_t ttl = rr->drr.ttl;
+  if (ttl_ofs > ttl)
+    ttl = 0;
+  else
+    ttl -= ttl_ofs;
+  dr->ttl = cpu_to_be32(ttl);
   return buf - obuf;
  oob:
   return DNS_RESULT_OOB;
@@ -317,6 +323,7 @@ cache_entry cache_register_request(io_request req, char *query, dns_query dq)
     {
       if (e->valid_until && e->valid_until < now)
         {
+          L_DEBUG(" .. freeing %s/%d", e->query, e->dq.qtype);
           _entry_free(e);
           continue;
         }
@@ -324,6 +331,7 @@ cache_entry cache_register_request(io_request req, char *query, dns_query dq)
         {
           if (e->valid_until >= now)
             {
+              L_DEBUG(" .. found valid cache for %s/%d", query, dq->qtype);
               _entry_complete(e, req);
               return e;
             }
@@ -331,10 +339,12 @@ cache_entry cache_register_request(io_request req, char *query, dns_query dq)
           if (list_empty(&e->requests))
             {
               found = true;
+              L_DEBUG(" .. restarting %s/%d", query, dq->qtype);
               break;
             }
           /* Yes, it is. Let's add us to the interested party list. */
           list_add(&req->in_cache, &e->requests);
+          L_DEBUG(" .. waiting for %s/%d", query, dq->qtype);
           return e;
         }
     }
@@ -352,6 +362,7 @@ cache_entry cache_register_request(io_request req, char *query, dns_query dq)
         }
       e->dq = *dq;
       list_add(&e->lh, &entries);
+      L_DEBUG(" .. new query %s/%d", query, dq->qtype);
     }
   else
     _entry_free_rrs(e);
@@ -369,18 +380,26 @@ cache_entry cache_register_request(io_request req, char *query, dns_query dq)
 void cache_entry_completed(cache_entry e)
 {
   io_request req, req2;
-  uint32_t lowest_ttl = 0xFFFFFFFF;
-  cache_rr rr;
+  uint32_t lowest_ttl;
+  bool found = !list_empty(&e->an);
 
   e->cached_at = io_time();
-  list_for_each_entry(rr, &e->an, head)
-    if (rr->drr.ttl < lowest_ttl)
-      lowest_ttl = rr->drr.ttl;
-  list_for_each_entry(rr, &e->ar, head)
-    if (rr->drr.ttl < lowest_ttl)
-      lowest_ttl = rr->drr.ttl;
-  if (lowest_ttl == 0xFFFFFFFF)
+  if (found)
+    {
+      cache_rr rr;
+
+      lowest_ttl = MAXIMUM_TTL;
+      list_for_each_entry(rr, &e->an, head)
+        if (rr->drr.ttl < lowest_ttl)
+          lowest_ttl = rr->drr.ttl;
+      list_for_each_entry(rr, &e->ar, head)
+        if (rr->drr.ttl < lowest_ttl)
+          lowest_ttl = rr->drr.ttl;
+    }
+  else
     lowest_ttl = NEGATIVE_CACHE_TTL;
+  L_DEBUG("cache_entry_completed %s/%d - ttl:%d seconds",
+          e->query, e->dq.qtype, lowest_ttl);
   e->valid_until = e->cached_at + ((io_time_t)lowest_ttl-1) * IO_TIME_PER_SECOND;
   list_for_each_entry_safe(req, req2, &e->requests, in_cache)
     {
