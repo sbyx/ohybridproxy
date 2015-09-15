@@ -77,15 +77,16 @@ bool b_query_start(io_query ioq)
   d2d_request req = ioq->request->b_private;
   uint8_t *buf = alloca(MAX_UDP_LENGTH);
   uint8_t *eom = buf + MAX_UDP_LENGTH;
-  struct sockaddr_in6 sin6;
+  struct sockaddr_in6 sin6 = {
+    .sin6_family = AF_INET6,
+    .sin6_port = htons(remote_port)
+  };
 
   if (!buf)
     return false;
   ioq->b_private = q;
   q->id = random();
   inet_pton(AF_INET6, remote_addr, &sin6.sin6_addr);
-  sin6.sin6_family = AF_INET6;
-  sin6.sin6_port = htons(remote_port);
 
   dns_msg m = (dns_msg) buf;
   memset(m, 0, sizeof(*m));
@@ -240,6 +241,7 @@ static void _handle_udp(struct uloop_fd *ufd, __unused unsigned int events)
          * performance so opting for that for now. */
         /* io_query_stop(ioq); */
         io_req_stop(req->io);
+        break;
       }
   }
 }
