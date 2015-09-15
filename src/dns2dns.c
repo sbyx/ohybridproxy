@@ -37,11 +37,10 @@ static const char *remote_addr = "::1";
 static int remote_port = 53;
 
 static const char **domains = NULL;
-int n_domains = 0;
+static int n_domains = 0;
 
 typedef struct d2d_query {
   uint16_t id;
-  bool replied;
 } *d2d_query;
 
 typedef struct d2d_request {
@@ -235,7 +234,6 @@ static void _handle_udp(struct uloop_fd *ufd, __unused unsigned int events)
     if (valid)
       {
         L_DEBUG("got valid reply, shocking");
-        q->replied = true;
         /* Two options here; either optimistically just stop this
          * query, or stop whole request. The later results in better
          * performance so opting for that for now. */
