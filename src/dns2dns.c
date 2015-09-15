@@ -214,7 +214,7 @@ static void _handle_udp(struct uloop_fd *ufd, __unused unsigned int events)
         if (m->ancount)
           {
             m->ancount--;
-            rrlist_add_rr(&ioq->request->e->an, domain, &local_rr, rr->rdata);
+            rrlist_add_rr(&ioq->request->e->an, req->query, &local_rr, rr->rdata);
           }
         else if (m->nscount)
           {
