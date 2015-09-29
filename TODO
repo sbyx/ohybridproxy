@@ -5,7 +5,11 @@
 (to be able to do NXDOMAIN, we should by default do qtype=all, and
 based on existence of non-matching record or not do NOERROR or
 NXDOMAIN )
- 
+
+- in cache.c, implement the RFC2308 negative handling correctly
+  (e.g. append SOA record to reply, use the SOA record as negative TTL
+  if response came from another server)
+
 - OpenWrt mdnsd backend (as opposed to mDNSResponder)?
 
 
