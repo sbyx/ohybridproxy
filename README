@@ -9,6 +9,11 @@ in routed networks with multiple links. This process is explained in
 http://tools.ietf.org/html/draft-cheshire-dnssd-hybrid-01 which inspired
 this implementation.
 
+** License **
+
+This project was originally licensed under the GNU General Public License 2,
+under agreement of all copyright holders responsible for contributions in this 
+branchs, the license was changed to Apache 2.0 effective March 3rd 2016.
 
 ** Features **
 
