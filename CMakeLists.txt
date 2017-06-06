@@ -16,6 +16,9 @@ else(${APPLE})
 set(dns_sd "dns_sd")
 endif(${APPLE})
 
+FIND_PATH(ubox_include_dir libubox/utils.h)
+INCLUDE_DIRECTORIES(${ubox_include_dir})
+
 set(CORE src/cache.c src/io.c src/socket.c)
 
 add_executable(ohybridproxy src/ohybridproxy.c src/dns2mdns.c ${CORE})
