@@ -261,7 +261,7 @@ _service_callback(DNSServiceRef service __unused,
     {
     case kDNSServiceType_PTR:
       /* Inverse PTRs are typically unique (and lack SRV/TXT of interest). */
-      if (_string_endswith(name, ".arpa."))
+      if (_string_endswith(name, ".arpa.") && !(_string_endswith(name, ".home.arpa.")))
         probably_cf = true;
       else
         {
@@ -360,7 +360,7 @@ bool b_query_start(io_query ioq)
        * Look at the request. Either it ends with one of the domains we
        * already have, or it ends with arpa, or we ignore it.
        */
-      if (_string_endswith(qb, ".arpa."))
+      if (_string_endswith(qb, ".arpa.") && !(_string_endswith(qb, ".home.arpa.")))
         {
           ifo = NULL;
           q->use_query_name_in_reply = true;
